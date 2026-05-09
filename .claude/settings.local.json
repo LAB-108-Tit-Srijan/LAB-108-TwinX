@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"D:\\\\coding\\\\Flutter\\\\Srijan\" -Force)",
+      "Bash(Select-Object Name, Mode)",
+      "Bash(xargs wc -l)"
+    ]
+  }
+}
