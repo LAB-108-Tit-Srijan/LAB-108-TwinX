@@ -72,8 +72,14 @@ Transcript: ${transcript}`;
     });
 
     const raw = completion.choices[0].message.content?.trim() ?? '[]';
-    const jsonText = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-    const questions = JSON.parse(jsonText);
+    // Robustly extract the JSON array regardless of surrounding text or markdown fences
+    const arrayMatch = raw.match(/\[[\s\S]*\]/);
+    if (!arrayMatch) {
+      console.error('[Quiz] Failed to extract JSON array from AI response:', raw.slice(0, 200));
+      res.status(500).json({ success: false, error: 'Failed to parse quiz questions from AI response' });
+      return;
+    }
+    const questions = JSON.parse(arrayMatch[0]);
 
     // Save to quizzes table
     await query(
@@ -142,7 +148,7 @@ router.post('/quiz/:lecture_id/attempt', studentAuth, async (req: StudentRequest
       );
     }
 
-    res.json({ success: true, score, total, percentage, passed });
+    res.json({ success: true, score, total, percentage, passed, credits_earned: passed ? 10 : 0 });
   } catch (err) {
     next(err);
   }

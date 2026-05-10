@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { Sidebar } from "@/components/layout/sidebar";
-import { ContentWrapper } from "@/components/layout/content-wrapper";
+import { AdminShell } from "@/components/layout/admin-shell";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -19,8 +18,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="h-full">
       <body className={`${inter.className} h-full bg-[#F8F9FC] antialiased`}>
-        <Sidebar />
-        <ContentWrapper>{children}</ContentWrapper>
+        <AdminShell>{children}</AdminShell>
       </body>
     </html>
   );

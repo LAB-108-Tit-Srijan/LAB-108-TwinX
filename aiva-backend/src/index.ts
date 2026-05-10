@@ -15,6 +15,7 @@ import roadmapRoutes from './routes/roadmap.routes';
 import progressRoutes from './routes/progress.routes';
 import quizRoutes from './routes/quiz.routes';
 import notesRoutes from './routes/notes.routes';
+import chatHistoryRoutes from './routes/chat-history.routes';
 import todoRoutes from './routes/todo.routes';
 import profileRoutes from './routes/profile.routes';
 import { errorMiddleware } from './middleware/error.middleware';
@@ -41,6 +42,7 @@ app.use('/api', roadmapRoutes);
 app.use('/api', progressRoutes);
 app.use('/api', quizRoutes);
 app.use('/api', notesRoutes);
+app.use('/api', chatHistoryRoutes);
 app.use('/api', todoRoutes);
 app.use('/api', profileRoutes);
 

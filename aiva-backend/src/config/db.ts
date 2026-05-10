@@ -198,14 +198,34 @@ export async function initDB(): Promise<void> {
     ALTER TABLE students ADD COLUMN IF NOT EXISTS credits_total INTEGER DEFAULT 0;
   `);
 
-  // Chat logs table
+  // Chat logs table (with student_id and answer for per-user history)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS chat_logs (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       lecture_id UUID REFERENCES lectures(id) ON DELETE SET NULL,
+      student_id UUID REFERENCES students(id) ON DELETE SET NULL,
       question TEXT NOT NULL,
+      answer TEXT,
       language VARCHAR(10) DEFAULT 'en',
       created_at TIMESTAMP DEFAULT NOW()
+    );
+  `);
+
+  // Add columns to existing chat_logs rows (idempotent)
+  await pool.query(`
+    ALTER TABLE chat_logs ADD COLUMN IF NOT EXISTS student_id UUID REFERENCES students(id) ON DELETE SET NULL;
+    ALTER TABLE chat_logs ADD COLUMN IF NOT EXISTS answer TEXT;
+  `);
+
+  // Student-specific notes (per student per lecture, generated from Q&A history)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS student_notes (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      student_id UUID REFERENCES students(id) ON DELETE CASCADE,
+      lecture_id UUID REFERENCES lectures(id) ON DELETE CASCADE,
+      content TEXT NOT NULL,
+      updated_at TIMESTAMP DEFAULT NOW(),
+      UNIQUE(student_id, lecture_id)
     );
   `);
 

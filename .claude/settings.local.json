@@ -54,7 +54,12 @@
       "Bash(ssh *)",
       "Bash(tar -czf - --exclude=aiva-backend/node_modules --exclude=aiva-backend/.env --exclude=aiva-backend/dist --exclude=aiva-backend/uploads aiva-backend)",
       "Bash(tar -czf - --exclude=admin/node_modules --exclude=admin/.next --exclude=admin/.env admin)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(xargs ls -lh)",
+      "Bash(dart analyze *)",
+      "PowerShell(Get-ChildItem -Path \"D:\\\\coding\\\\Flutter\\\\Srijan\" -Directory | ForEach-Object { $_.FullName })",
+      "PowerShell(ls -Path \"D:\\\\coding\\\\Flutter\\\\Srijan\\\\aiva-backend\\\\src\" -Recurse | Where-Object { $_.Extension -eq \".ts\" -or $_.Extension -eq \".js\" } | Select-Object -ExpandProperty FullName)",
+      "PowerShell(ls -Path \"D:\\\\coding\\\\Flutter\\\\Srijan\\\\AIVA\\\\lib\" -Recurse | Where-Object { $_.Extension -eq \".dart\" } | Select-Object -ExpandProperty FullName | Where-Object { $_ -match \"\\(quiz|notes\\)\" })"
     ]
   }
 }
