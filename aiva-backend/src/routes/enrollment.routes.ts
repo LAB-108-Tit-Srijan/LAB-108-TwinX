@@ -27,97 +27,91 @@ router.post('/enroll', studentAuth, async (req: StudentRequest, res: Response, n
     }
     const course = courseResult.rows[0];
 
-    // Create enrollment with target_weeks (ignore duplicate)
+    // Create enrollment (upsert — safe to call multiple times)
     const enrollment = await query(
       `INSERT INTO enrollments (student_id, course_id, target_weeks)
        VALUES ($1, $2, $3)
-       ON CONFLICT (student_id, course_id) DO UPDATE SET enrolled_at = enrollments.enrolled_at
+       ON CONFLICT (student_id, course_id) DO UPDATE SET target_weeks = EXCLUDED.target_weeks
        RETURNING id`,
       [studentId, course_id, target_weeks ?? 4]
     );
     const enrollmentId = enrollment.rows[0].id;
 
-    // Auto-generate roadmap using OpenAI
-    let roadmapId: string | null = null;
-    try {
-      const lecturesResult = await query(
-        `SELECT id, title, duration, order_index FROM lectures
-         WHERE course_id = $1 AND status = 'ready' ORDER BY order_index ASC`,
-        [course_id]
-      );
-      const lectures = lecturesResult.rows;
-      const weeks = target_weeks ?? 4;
-      const targetDays = weeks * 7;
-
-      if (lectures.length > 0) {
-        const prompt = `You are an AI learning coach.
-A student has enrolled in: ${course.title}
-Available time: 1 hour/day
-Target: Complete in ${targetDays} days
-Total lectures: ${lectures.length}
-Total estimated hours: ${course.estimated_hours}h
-Lectures: ${lectures.map((l: { title: string; duration: number; id: string }, i: number) => `${i + 1}. ${l.title} (${Math.round(l.duration / 60)}min, id: ${l.id})`).join('\n')}
-
-Create a day-by-day study plan.
-Return ONLY valid JSON (no markdown, no explanation):
-{
-  "overview": "string (2 sentences)",
-  "daily_goal_hours": number,
-  "estimated_completion_days": number,
-  "weekly_plan": [
-    {
-      "week": number,
-      "focus": "string",
-      "lectures": [
-        {
-          "lecture_id": "string",
-          "title": "string",
-          "day": number,
-          "estimated_minutes": number,
-          "priority": "high" | "medium" | "low"
-        }
-      ]
-    }
-  ],
-  "today_lectures": ["lecture_id"],
-  "tips": ["string"]
-}`;
-
-        const completion = await openai.chat.completions.create({
-          model: 'gpt-4o-mini',
-          max_tokens: 2048,
-          messages: [{ role: 'user', content: prompt }],
-        });
-
-        const raw = completion.choices[0].message.content?.trim() ?? '{}';
-        const jsonText = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-        const plan = JSON.parse(jsonText);
-
-        const saved = await query(
-          `INSERT INTO roadmaps (enrollment_id, student_id, course_id, goal, daily_hours, target_days, plan)
-           VALUES ($1,$2,$3,$4,$5,$6,$7)
-           ON CONFLICT DO NOTHING
-           RETURNING id`,
-          [enrollmentId, studentId, course_id, `Complete ${course.title}`, 1, targetDays, JSON.stringify(plan)]
-        );
-        roadmapId = saved.rows[0]?.id ?? null;
-      }
-    } catch (roadmapErr) {
-      // Roadmap generation failure should not block enrollment
-      console.error('[Enrollment] Roadmap auto-generation failed:', roadmapErr);
-    }
-
+    // Respond immediately — don't make the student wait for AI roadmap generation
     res.json({
       success: true,
       enrollment_id: enrollmentId,
-      course,
-      roadmap_id: roadmapId,
       message: 'Enrolled successfully',
     });
+
+    // Generate roadmap in background (fire-and-forget, never blocks the response)
+    generateRoadmapBackground(enrollmentId, studentId, course_id, course, target_weeks ?? 4)
+      .catch((err: unknown) => console.error('[Enrollment] Background roadmap failed:', err));
+
   } catch (err) {
     next(err);
   }
 });
+
+async function generateRoadmapBackground(
+  enrollmentId: string,
+  studentId: string,
+  courseId: string,
+  course: { title: string; estimated_hours: number },
+  targetWeeks: number
+): Promise<void> {
+  // Skip if roadmap already exists for this enrollment
+  const existing = await query(
+    `SELECT id FROM roadmaps WHERE enrollment_id = $1 LIMIT 1`,
+    [enrollmentId]
+  );
+  if (existing.rows[0]) return;
+
+  const lecturesResult = await query(
+    `SELECT id, title, duration, order_index FROM lectures
+     WHERE course_id = $1 AND status = 'ready' ORDER BY order_index ASC`,
+    [courseId]
+  );
+  const lectures = lecturesResult.rows;
+  if (lectures.length === 0) return;
+
+  const targetDays = targetWeeks * 7;
+
+  const prompt = `You are an AI learning coach.
+A student enrolled in: ${course.title}
+Available time: 1 hour/day. Target: complete in ${targetDays} days.
+Total lectures: ${lectures.length} (${course.estimated_hours}h estimated)
+Lectures:
+${lectures.map((l: { title: string; duration: number; id: string }, i: number) =>
+  `${i + 1}. ${l.title} (${Math.round(l.duration / 60)}min, id: ${l.id})`
+).join('\n')}
+
+Return ONLY a valid JSON object (no markdown, no explanation):
+{"overview":"string","daily_goal_hours":1,"estimated_completion_days":${targetDays},"weekly_plan":[{"week":1,"focus":"string","lectures":[{"lecture_id":"string","title":"string","day":1,"estimated_minutes":30,"priority":"high"}]}],"today_lectures":["lecture_id"],"tips":["string"]}`;
+
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o-mini',
+    max_tokens: 2048,
+    messages: [{ role: 'user', content: prompt }],
+  });
+
+  const raw = completion.choices[0].message.content?.trim() ?? '{}';
+  // Robustly extract the JSON object regardless of surrounding text
+  const objMatch = raw.match(/\{[\s\S]*\}/);
+  if (!objMatch) {
+    console.error('[Enrollment] Could not extract JSON from roadmap response:', raw.slice(0, 200));
+    return;
+  }
+  const plan = JSON.parse(objMatch[0]);
+
+  await query(
+    `INSERT INTO roadmaps (enrollment_id, student_id, course_id, goal, daily_hours, target_days, plan)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
+     ON CONFLICT (enrollment_id) DO UPDATE SET plan = EXCLUDED.plan, target_days = EXCLUDED.target_days`,
+    [enrollmentId, studentId, courseId, `Complete ${course.title}`, 1, targetDays, JSON.stringify(plan)]
+  );
+  console.log(`[Enrollment] Roadmap generated for enrollment ${enrollmentId}`);
+}
 
 // GET /api/my-courses
 router.get('/my-courses', studentAuth, async (req: StudentRequest, res: Response, next: NextFunction): Promise<void> => {

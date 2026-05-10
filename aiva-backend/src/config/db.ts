@@ -217,6 +217,13 @@ export async function initDB(): Promise<void> {
     ALTER TABLE chat_logs ADD COLUMN IF NOT EXISTS answer TEXT;
   `);
 
+  // Ensure roadmaps has a unique constraint on enrollment_id (one roadmap per enrollment)
+  await pool.query(`
+    ALTER TABLE roadmaps ADD COLUMN IF NOT EXISTS enrollment_id UUID REFERENCES enrollments(id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_roadmaps_enrollment_id ON roadmaps (enrollment_id)
+      WHERE enrollment_id IS NOT NULL;
+  `);
+
   // Student-specific notes (per student per lecture, generated from Q&A history)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS student_notes (

@@ -134,6 +134,7 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
 
     setState(() => _enrolling = true);
     try {
+      // Enrollment now responds instantly (roadmap is generated in background)
       final result = await ApiService.post('/api/enroll', {
         'course_id': widget.course.id,
         'target_weeks': (targetWeeks).round(),
@@ -149,21 +150,30 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
         ));
       } else {
         setState(() => _enrolling = false);
+        // Backend uses 'error' field, not 'message'
+        final errMsg = result['error']?.toString()
+            ?? result['message']?.toString()
+            ?? 'Enrollment failed. Please try again.';
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(result['message']?.toString() ?? 'Enrollment failed'),
+            content: Text(errMsg),
             backgroundColor: AppColors.red,
             behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ));
         }
       }
     } catch (e) {
       setState(() => _enrolling = false);
+      final msg = e.toString().contains('TimeoutException')
+          ? 'Request timed out. Please check your connection and try again.'
+          : 'Could not connect to server. Please try again.';
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Network error: $e'),
+          content: Text(msg),
           backgroundColor: AppColors.red,
           behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ));
       }
     }
