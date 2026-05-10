@@ -1,6 +1,6 @@
 import { auth } from './auth';
 
-const BASE_URL = 'https://demo11.mrsumi.com';
+const BASE_URL = 'https://backend-aiva.mrsumi.com';
 
 function authHeaders(): Record<string, string> {
   const token = auth.getToken();
