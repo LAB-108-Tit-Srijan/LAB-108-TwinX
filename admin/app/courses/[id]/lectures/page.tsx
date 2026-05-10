@@ -76,7 +76,7 @@ function InlineUploadForm({ onSuccess }: InlineUploadFormProps) {
           }
         };
         xhr.onerror = () => reject(new Error("Network error. Check that the backend is running."));
-        xhr.open("POST", "https://demo11.mrsumi.com/api/video/upload");
+        xhr.open("POST", "https://backend-aiva.mrsumi.com/api/video/upload");
         xhr.send(formData);
       });
 

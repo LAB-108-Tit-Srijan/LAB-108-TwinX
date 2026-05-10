@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class ApiService {
-  static const String kBaseUrl = 'https://demo11.mrsumi.com';
+  static const String kBaseUrl = 'https://backend-aiva.mrsumi.com';
   static String? _studentToken;
 
   static Map<String, String> get _headers => {

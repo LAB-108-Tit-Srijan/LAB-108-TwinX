@@ -336,88 +336,71 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
 
   Widget _buildMessageBubble(ChatMessage message, double dvpw, double dvph) {
     final isUser = message.sender == MessageSender.user;
-    
-    return Padding(
-      padding: EdgeInsets.only(bottom: dvph * 0.02),
-      child: Row(
-        mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
-        crossAxisAlignment: CrossAxisAlignment.start,
+
+    final bubble = ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: dvpw * 0.7),
+      child: Column(
+        crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          if (!isUser) ...[
-            // AI Avatar
-            Container(
-              width: dvpw * 0.1,
-              height: dvpw * 0.1,
-              decoration: BoxDecoration(
-                color: AppColors.primaryLime,
-                borderRadius: BorderRadius.circular(dvpw * 0.03),
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: dvpw * 0.038, vertical: dvph * 0.012),
+            decoration: BoxDecoration(
+              color: isUser ? AppColors.primaryDark : AppColors.white,
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(dvpw * 0.05),
+                topRight: Radius.circular(dvpw * 0.05),
+                bottomLeft: Radius.circular(isUser ? dvpw * 0.05 : dvpw * 0.01),
+                bottomRight: Radius.circular(isUser ? dvpw * 0.01 : dvpw * 0.05),
               ),
-              child: Icon(
-                Icons.auto_awesome,
-                size: dvpw * 0.055,
-                color: AppColors.primaryDark,
-              ),
-            ),
-            SizedBox(width: dvpw * 0.025),
-          ],
-          
-          // Message bubble
-          Flexible(
-            child: Column(
-              crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-              children: [
-                Container(
-                  constraints: BoxConstraints(maxWidth: dvpw * 0.72),
-                  padding: EdgeInsets.all(dvpw * 0.04),
-                  decoration: BoxDecoration(
-                    color: isUser ? AppColors.primaryDark : AppColors.white,
-                    borderRadius: BorderRadius.only(
-                      topLeft: Radius.circular(dvpw * 0.05),
-                      topRight: Radius.circular(dvpw * 0.05),
-                      bottomLeft: Radius.circular(isUser ? dvpw * 0.05 : dvpw * 0.01),
-                      bottomRight: Radius.circular(isUser ? dvpw * 0.01 : dvpw * 0.05),
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: AppColors.gray.withOpacity(0.1),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: _buildFormattedText(
-                    message.content,
-                    isUser,
-                    dvpw,
-                  ),
-                ),
-                SizedBox(height: dvph * 0.005),
-                Text(
-                  _formatTime(message.timestamp),
-                  style: GoogleFonts.lato(
-                    fontSize: dvpw * 0.028,
-                    color: AppColors.gray,
-                  ),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.gray.withOpacity(0.08),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
                 ),
               ],
             ),
+            child: _buildFormattedText(message.content, isUser, dvpw),
           ),
-          
-          if (isUser) ...[
-            SizedBox(width: dvpw * 0.025),
-            // User Avatar
+          SizedBox(height: dvph * 0.004),
+          Text(
+            _formatTime(message.timestamp),
+            style: GoogleFonts.lato(fontSize: dvpw * 0.027, color: AppColors.gray),
+          ),
+        ],
+      ),
+    );
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: dvph * 0.016),
+      child: Row(
+        mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (!isUser) ...[
             Container(
-              width: dvpw * 0.1,
-              height: dvpw * 0.1,
+              width: dvpw * 0.09,
+              height: dvpw * 0.09,
+              decoration: BoxDecoration(
+                color: AppColors.primaryLime,
+                borderRadius: BorderRadius.circular(dvpw * 0.025),
+              ),
+              child: Icon(Icons.auto_awesome, size: dvpw * 0.048, color: AppColors.primaryDark),
+            ),
+            SizedBox(width: dvpw * 0.022),
+          ],
+          bubble,
+          if (isUser) ...[
+            SizedBox(width: dvpw * 0.022),
+            Container(
+              width: dvpw * 0.09,
+              height: dvpw * 0.09,
               decoration: BoxDecoration(
                 color: AppColors.green,
-                borderRadius: BorderRadius.circular(dvpw * 0.03),
+                borderRadius: BorderRadius.circular(dvpw * 0.025),
               ),
-              child: Icon(
-                Icons.person,
-                size: dvpw * 0.055,
-                color: AppColors.white,
-              ),
+              child: Icon(Icons.person, size: dvpw * 0.048, color: AppColors.white),
             ),
           ],
         ],
@@ -462,6 +445,7 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
     
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: widgets,
     );
   }
@@ -510,24 +494,24 @@ class _AiChatScreenState extends State<AiChatScreen> with TickerProviderStateMix
 
   Widget _buildTypingIndicator(double dvpw, double dvph) {
     return Padding(
-      padding: EdgeInsets.only(bottom: dvph * 0.02),
+      padding: EdgeInsets.only(bottom: dvph * 0.016),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Container(
-            width: dvpw * 0.1,
-            height: dvpw * 0.1,
+            width: dvpw * 0.09,
+            height: dvpw * 0.09,
             decoration: BoxDecoration(
               color: AppColors.primaryLime,
-              borderRadius: BorderRadius.circular(dvpw * 0.03),
+              borderRadius: BorderRadius.circular(dvpw * 0.025),
             ),
             child: Icon(
               Icons.auto_awesome,
-              size: dvpw * 0.055,
+              size: dvpw * 0.048,
               color: AppColors.primaryDark,
             ),
           ),
-          SizedBox(width: dvpw * 0.025),
+          SizedBox(width: dvpw * 0.022),
           Container(
             padding: EdgeInsets.all(dvpw * 0.04),
             decoration: BoxDecoration(

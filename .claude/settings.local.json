@@ -47,7 +47,14 @@
       "Bash(node -e ' *)",
       "Bash(not exist *)",
       "Bash(New-Item -ItemType Directory -Force -Path \"D:\\\\coding\\\\Flutter\\\\Srijan\\\\AIVA\\\\lib\\\\features\\\\video_player\\\\widgets\")",
-      "Bash(flutter pub *)"
+      "Bash(flutter pub *)",
+      "PowerShell(Get-ChildItem -Path \"D:\\\\coding\\\\Flutter\\\\Srijan\\\\AIVA\\\\lib\" -Recurse | Where-Object { $_.PSIsContainer } | Sort-Object FullName | ForEach-Object { $_.FullName.Replace\\(\"D:\\\\coding\\\\Flutter\\\\Srijan\\\\AIVA\\\\lib\\\\\", \"\"\\) })",
+      "PowerShell(Get-ChildItem -Path \"D:\\\\coding\\\\Flutter\\\\Srijan\\\\AIVA\\\\lib\" -Recurse -File | Where-Object { $_.Extension -eq \".dart\" } | Select-Object FullName | Sort-Object | ForEach-Object { $_.FullName.Replace\\(\"D:\\\\coding\\\\Flutter\\\\Srijan\\\\AIVA\\\\lib\\\\\", \"\"\\) })",
+      "PowerShell(icacls \"D:\\\\coding\\\\Flutter\\\\Srijan\\\\main-key-fitvario.pem\" /inheritance:r /grant:r \"${env:USERNAME}:\\(R\\)\"; Write-Host \"PEM permissions set\")",
+      "Bash(ssh *)",
+      "Bash(tar -czf - --exclude=aiva-backend/node_modules --exclude=aiva-backend/.env --exclude=aiva-backend/dist --exclude=aiva-backend/uploads aiva-backend)",
+      "Bash(tar -czf - --exclude=admin/node_modules --exclude=admin/.next --exclude=admin/.env admin)",
+      "Bash(git commit *)"
     ]
   }
 }

@@ -497,21 +497,31 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> with TickerProvid
     final progress = elapsed / chunkDuration;
 
     final words = chunkText.split(' ').where((wd) => wd.isNotEmpty).toList();
-    final visibleCount = ((progress * words.length) + 1).ceil().clamp(1, words.length);
-    final visibleText = words.take(visibleCount).join(' ');
+    if (words.isEmpty) return const SizedBox.shrink();
 
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: w * 0.03, vertical: w * 0.02),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.72),
-        borderRadius: BorderRadius.circular(w * 0.02),
-      ),
-      child: Text(
-        visibleText,
-        textAlign: TextAlign.center,
-        style: GoogleFonts.lato(fontSize: w * 0.038, color: Colors.white, height: 1.4, shadows: const [Shadow(color: Colors.black, blurRadius: 4)]),
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
+    // Show 4 words at a time; when those 4 are done, next 4 replace them
+    const wordsPerLine = 4;
+    final currentWordIdx = (progress * words.length).floor().clamp(0, words.length - 1);
+    final lineIdx = currentWordIdx ~/ wordsPerLine;
+    final lineStart = lineIdx * wordsPerLine;
+    final lineEnd = (lineStart + wordsPerLine).clamp(0, words.length);
+    final lineText = words.sublist(lineStart, lineEnd).join(' ');
+
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 180),
+      child: Container(
+        key: ValueKey(lineIdx),
+        padding: EdgeInsets.symmetric(horizontal: w * 0.04, vertical: w * 0.022),
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.72),
+          borderRadius: BorderRadius.circular(w * 0.02),
+        ),
+        child: Text(
+          lineText,
+          textAlign: TextAlign.center,
+          style: GoogleFonts.lato(fontSize: w * 0.04, fontWeight: FontWeight.w500, color: Colors.white, height: 1.3, shadows: const [Shadow(color: Colors.black, blurRadius: 4)]),
+          maxLines: 1,
+        ),
       ),
     );
   }

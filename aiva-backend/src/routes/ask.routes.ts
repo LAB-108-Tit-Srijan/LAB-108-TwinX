@@ -45,13 +45,26 @@ router.post('/ask', async (req: Request, res: Response, next: NextFunction): Pro
       return;
     }
 
+    // Auto-build pause context from current_timestamp when not explicitly provided
+    let finalPauseContext = pause_context;
+    if (!finalPauseContext && current_timestamp !== undefined && current_timestamp > 0) {
+      const minutes = Math.floor(current_timestamp / 60);
+      const secs = Math.floor(current_timestamp % 60);
+      finalPauseContext = {
+        seconds: current_timestamp,
+        timestamp_label: `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`,
+        window_before: 120,
+        window_after: 30,
+      };
+    }
+
     const askRequest: AskRequest = {
       lecture_id,
       question: question.trim(),
       language: finalLanguage,
       chat_history: chat_history ?? [],
       current_timestamp,
-      pause_context,
+      pause_context: finalPauseContext,
     };
 
     console.log(`[API] Ask request for lecture ${lecture_id}: "${question}"`);

@@ -15,10 +15,9 @@ router.get('/quiz/:lecture_id', async (req: Request, res: Response, next: NextFu
     // Return existing quiz if already generated
     const existing = await query(`SELECT * FROM quizzes WHERE lecture_id = $1`, [lecture_id]);
     if (existing.rows[0]) {
-      res.json({
-        success: true,
-        quiz: { lecture_id, questions: existing.rows[0].questions },
-      });
+      const raw = existing.rows[0].questions;
+      const questions = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      res.json({ success: true, quiz: { lecture_id, questions } });
       return;
     }
 
@@ -108,7 +107,8 @@ router.post('/quiz/:lecture_id/attempt', studentAuth, async (req: StudentRequest
       return;
     }
 
-    const questions = quizResult.rows[0].questions as Array<{ correct_index: number }>;
+    const questionsRaw = quizResult.rows[0].questions;
+    const questions = (typeof questionsRaw === 'string' ? JSON.parse(questionsRaw) : questionsRaw) as Array<{ correct_index: number }>;
     const total = questions.length;
     let score = 0;
 
