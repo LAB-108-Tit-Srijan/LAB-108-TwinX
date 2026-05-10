@@ -60,9 +60,10 @@ function InlineUploadForm({ courseId, courseName, currentLectureCount, onSuccess
     formData.append("video", file);
     formData.append("title", title.trim());
     formData.append("instructor", instructor.trim());
+    formData.append("course", courseName);          // ← was missing — backend requires this
 
     try {
-      await new Promise<string>((resolve, reject) => {
+      const lectureId = await new Promise<string>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.upload.onprogress = (event) => {
           if (event.lengthComputable) {
@@ -75,15 +76,26 @@ function InlineUploadForm({ courseId, courseName, currentLectureCount, onSuccess
             if (data.success) resolve(data.lecture_id);
             else reject(new Error(data.error ?? "Upload failed"));
           } else {
-            reject(new Error(`Server error: ${xhr.status}`));
+            try {
+              const data = JSON.parse(xhr.responseText) as { error?: string };
+              reject(new Error(data.error ?? `Server error: ${xhr.status}`));
+            } catch {
+              reject(new Error(`Server error: ${xhr.status}`));
+            }
           }
         };
         xhr.onerror = () => reject(new Error("Network error. Check that the backend is running."));
         xhr.open("POST", "https://backend-aiva.mrsumi.com/api/video/upload");
+        // Include admin token so the backend can authenticate if needed
+        const token = auth.getToken();
+        if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
         xhr.send(formData);
       });
 
-      setSuccessMsg("Lecture uploaded successfully! It will appear in the list once processing completes.");
+      // Auto-link the new lecture to this course (order = current end of list)
+      await api.addLectureToCourse(courseId, lectureId, currentLectureCount);
+
+      setSuccessMsg("Lecture uploaded and added to course! It will be ready after processing.");
       setTitle("");
       setInstructor("");
       setFile(null);
@@ -345,7 +357,12 @@ export default function CourseLecturesPage() {
           </div>
         )}
 
-        <InlineUploadForm onSuccess={load} />
+        <InlineUploadForm
+          courseId={id}
+          courseName={course?.title ?? ""}
+          currentLectureCount={courseLectures.length}
+          onSuccess={load}
+        />
 
         <div className="grid grid-cols-2 gap-6">
           {/* Left: Course lecture list */}
