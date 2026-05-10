@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { auth } from "@/lib/auth";
 import {
   LayoutDashboard,
   BookOpen,
@@ -84,7 +85,11 @@ export function Sidebar() {
               admin@aiva.in
             </p>
           </div>
-          <button className="p-1.5 rounded-lg hover:bg-[#FEF2F2] text-[#9CA3AF] hover:text-[#EF4444] transition-colors">
+          <button
+            onClick={() => auth.logout()}
+            title="Sign out"
+            className="p-1.5 rounded-lg hover:bg-[#FEF2F2] text-[#9CA3AF] hover:text-[#EF4444] transition-colors"
+          >
             <LogOut size={16} />
           </button>
         </div>

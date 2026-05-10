@@ -43,6 +43,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
   // Tab data
   List<Map<String, dynamic>> _transcript = [];
+  List<Map<String, dynamic>> _chapters = [];
   String? _summaryFull;
   bool _transcriptLoading = true;
   bool _summaryLoading = true;
@@ -196,6 +197,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       if (data['success'] == true && mounted) {
         setState(() {
           _summaryFull = data['summary_full'] as String?;
+          _chapters = List<Map<String, dynamic>>.from(data['chapters'] as List? ?? []);
           _summaryLoading = false;
         });
       } else {
@@ -1052,6 +1054,32 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
   // ─── Transcript Tab ───────────────────────────────────────────────────────
 
+  List<String> _splitSentences(String text) {
+    final raw = text.split(RegExp(r'(?<=[.!?])\s+'));
+    return raw.map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
+  }
+
+  Map<String, dynamic>? _activeChunk() {
+    final pos = _controller?.value.position.inSeconds.toDouble() ?? 0;
+    for (final chunk in _transcript) {
+      final start = (chunk['start_time'] as num?)?.toDouble() ?? 0;
+      final end = (chunk['end_time'] as num?)?.toDouble() ?? start + 30;
+      if (pos >= start && pos < end) return chunk;
+    }
+    return null;
+  }
+
+  int _currentChapterIndex() {
+    if (_chapters.isEmpty) return -1;
+    final pos = _controller?.value.position.inSeconds.toDouble() ?? 0;
+    int idx = 0;
+    for (int i = 0; i < _chapters.length; i++) {
+      final chStart = (_chapters[i]['start_time'] as num?)?.toDouble() ?? 0;
+      if (pos >= chStart) idx = i;
+    }
+    return idx;
+  }
+
   Widget _buildTranscriptTab(double w, double h) {
     if (_transcriptLoading) {
       return const Center(child: CircularProgressIndicator(color: AppColors.primaryDark, strokeWidth: 2));
@@ -1068,62 +1096,286 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       );
     }
 
-    return ListView.builder(
-      controller: _transcriptScrollController,
-      padding: EdgeInsets.symmetric(vertical: h * 0.008),
-      itemCount: _transcript.length,
-      itemBuilder: (_, i) {
-        final chunk = _transcript[i];
-        final start = (chunk['start_time'] as num?)?.toDouble() ?? 0;
-        final end = (chunk['end_time'] as num?)?.toDouble() ?? start + 30;
-        final text = chunk['text'] as String? ?? '';
-        final currentPos = _controller?.value.position.inSeconds.toDouble() ?? 0;
-        final isActive = currentPos >= start && currentPos < end;
-        final label = chunk['timestamp_label'] as String? ?? _formatDuration(Duration(seconds: start.toInt()));
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ── "Now Speaking" card ───────────────────────────────────────────
+        _buildNowSpeakingCard(w, h),
 
-        return GestureDetector(
-          onTap: () {
-            _controller?.seekTo(Duration(seconds: start.toInt()));
-            _controller?.play();
-          },
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            color: isActive ? AppColors.primaryLime.withOpacity(0.08) : Colors.transparent,
-            padding: EdgeInsets.symmetric(horizontal: w * 0.04, vertical: h * 0.012),
-            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Container(
-                width: w * 0.13,
-                padding: EdgeInsets.symmetric(horizontal: w * 0.015, vertical: h * 0.004),
-                decoration: BoxDecoration(
-                  color: isActive ? AppColors.primaryDark : AppColors.lightBg,
-                  borderRadius: BorderRadius.circular(w * 0.02),
-                ),
-                child: Text(
-                  label,
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.lato(
-                    fontSize: w * 0.026,
-                    color: isActive ? AppColors.primaryLime : AppColors.gray,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              SizedBox(width: w * 0.03),
-              Expanded(
-                child: Text(
-                  text,
-                  style: GoogleFonts.lato(
-                    fontSize: w * 0.034,
-                    color: isActive ? AppColors.primaryDark : AppColors.grayDark,
-                    height: 1.55,
-                    fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
-                  ),
-                ),
-              ),
-            ]),
+        // ── Chapters strip ────────────────────────────────────────────────
+        if (_chapters.isNotEmpty) _buildChaptersStrip(w, h),
+
+        // ── Full transcript list ──────────────────────────────────────────
+        Padding(
+          padding: EdgeInsets.fromLTRB(w * 0.04, h * 0.012, w * 0.04, h * 0.005),
+          child: Text(
+            'Full Transcript',
+            style: GoogleFonts.lato(fontSize: w * 0.032, fontWeight: FontWeight.w700, color: AppColors.gray, letterSpacing: 0.5),
           ),
-        );
-      },
+        ),
+        Expanded(
+          child: ListView.builder(
+            controller: _transcriptScrollController,
+            padding: EdgeInsets.only(bottom: h * 0.02),
+            itemCount: _transcript.length,
+            itemBuilder: (_, i) {
+              final chunk = _transcript[i];
+              final start = (chunk['start_time'] as num?)?.toDouble() ?? 0;
+              final end = (chunk['end_time'] as num?)?.toDouble() ?? start + 30;
+              final text = chunk['text'] as String? ?? '';
+              final currentPos = _controller?.value.position.inSeconds.toDouble() ?? 0;
+              final isActive = currentPos >= start && currentPos < end;
+              final label = chunk['timestamp_label'] as String? ??
+                  _formatDuration(Duration(seconds: start.toInt()));
+
+              return GestureDetector(
+                onTap: () {
+                  _controller?.seekTo(Duration(seconds: start.toInt()));
+                  _controller?.play();
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  color: isActive ? AppColors.primaryLime.withOpacity(0.08) : Colors.transparent,
+                  padding: EdgeInsets.symmetric(horizontal: w * 0.04, vertical: h * 0.011),
+                  child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    // Timestamp pill
+                    Container(
+                      width: w * 0.13,
+                      padding: EdgeInsets.symmetric(horizontal: w * 0.012, vertical: h * 0.004),
+                      decoration: BoxDecoration(
+                        color: isActive ? AppColors.primaryDark : AppColors.lightBg,
+                        borderRadius: BorderRadius.circular(w * 0.02),
+                      ),
+                      child: Text(
+                        label,
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.lato(
+                          fontSize: w * 0.025,
+                          color: isActive ? AppColors.primaryLime : AppColors.gray,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    SizedBox(width: w * 0.03),
+                    Expanded(
+                      child: Text(
+                        text,
+                        style: GoogleFonts.lato(
+                          fontSize: w * 0.033,
+                          color: isActive ? AppColors.primaryDark : AppColors.grayDark,
+                          height: 1.5,
+                          fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
+                        ),
+                      ),
+                    ),
+                    if (isActive)
+                      Padding(
+                        padding: EdgeInsets.only(left: w * 0.02),
+                        child: Container(
+                          width: w * 0.015,
+                          height: w * 0.015,
+                          decoration: const BoxDecoration(color: AppColors.primaryLime, shape: BoxShape.circle),
+                        ),
+                      ),
+                  ]),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Now Speaking card with sentence-by-sentence reveal ────────────────────
+
+  Widget _buildNowSpeakingCard(double w, double h) {
+    final chunk = _activeChunk();
+    if (chunk == null) {
+      return Container(
+        margin: EdgeInsets.fromLTRB(w * 0.04, h * 0.012, w * 0.04, h * 0.004),
+        padding: EdgeInsets.all(w * 0.04),
+        decoration: BoxDecoration(
+          color: AppColors.primaryDark,
+          borderRadius: BorderRadius.circular(w * 0.04),
+        ),
+        child: Row(children: [
+          Container(width: w * 0.018, height: w * 0.018, decoration: BoxDecoration(color: Colors.white24, shape: BoxShape.circle)),
+          SizedBox(width: w * 0.025),
+          Text('Not speaking — tap any line below to jump', style: GoogleFonts.lato(fontSize: w * 0.03, color: Colors.white38)),
+        ]),
+      );
+    }
+
+    final text = chunk['text'] as String? ?? '';
+    final chunkStart = (chunk['start_time'] as num?)?.toDouble() ?? 0;
+    final chunkEnd = (chunk['end_time'] as num?)?.toDouble() ?? chunkStart + 30;
+    final chunkDuration = (chunkEnd - chunkStart).clamp(0.5, 300.0);
+    final currentPos = _controller?.value.position.inSeconds.toDouble() ?? 0;
+    final elapsed = (currentPos - chunkStart).clamp(0.0, chunkDuration);
+    final progress = elapsed / chunkDuration;
+
+    final sentences = _splitSentences(text);
+    // Reveal sentences progressively as time moves through the chunk
+    final visibleCount = sentences.isEmpty
+        ? 0
+        : (progress * sentences.length).ceil().clamp(1, sentences.length);
+    final label = chunk['timestamp_label'] as String? ??
+        _formatDuration(Duration(seconds: chunkStart.toInt()));
+
+    return Container(
+      margin: EdgeInsets.fromLTRB(w * 0.04, h * 0.012, w * 0.04, h * 0.004),
+      padding: EdgeInsets.all(w * 0.04),
+      decoration: BoxDecoration(
+        color: AppColors.primaryDark,
+        borderRadius: BorderRadius.circular(w * 0.04),
+        boxShadow: [BoxShadow(color: AppColors.primaryDark.withOpacity(0.3), blurRadius: 12, offset: const Offset(0, 4))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header row
+          Row(children: [
+            // Pulsing dot
+            Container(
+              width: w * 0.02,
+              height: w * 0.02,
+              decoration: const BoxDecoration(color: AppColors.primaryLime, shape: BoxShape.circle),
+            ),
+            SizedBox(width: w * 0.02),
+            Text('Now Speaking', style: GoogleFonts.lato(fontSize: w * 0.028, fontWeight: FontWeight.w700, color: AppColors.primaryLime)),
+            const Spacer(),
+            Text(label, style: GoogleFonts.lato(fontSize: w * 0.026, color: Colors.white38, fontWeight: FontWeight.w600)),
+          ]),
+          SizedBox(height: h * 0.01),
+          // Progress line
+          ClipRRect(
+            borderRadius: BorderRadius.circular(2),
+            child: LinearProgressIndicator(
+              value: progress.clamp(0.0, 1.0),
+              backgroundColor: Colors.white12,
+              valueColor: const AlwaysStoppedAnimation(AppColors.primaryLime),
+              minHeight: 2,
+            ),
+          ),
+          SizedBox(height: h * 0.012),
+          // Sentences appearing progressively
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: sentences.asMap().entries.map((entry) {
+              final idx = entry.key;
+              final sentence = entry.value;
+              final isVisible = idx < visibleCount;
+              final isCurrent = idx == visibleCount - 1;
+
+              return AnimatedOpacity(
+                duration: const Duration(milliseconds: 350),
+                opacity: isVisible ? 1.0 : 0.0,
+                child: AnimatedSlide(
+                  duration: const Duration(milliseconds: 300),
+                  offset: isVisible ? Offset.zero : const Offset(0, 0.15),
+                  child: Padding(
+                    padding: EdgeInsets.only(bottom: h * 0.005),
+                    child: Text(
+                      sentence,
+                      style: GoogleFonts.lato(
+                        fontSize: w * 0.036,
+                        color: isCurrent ? AppColors.white : Colors.white54,
+                        height: 1.55,
+                        fontWeight: isCurrent ? FontWeight.w600 : FontWeight.normal,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Chapters strip ────────────────────────────────────────────────────────
+
+  Widget _buildChaptersStrip(double w, double h) {
+    final activeIdx = _currentChapterIndex();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: EdgeInsets.fromLTRB(w * 0.04, h * 0.012, w * 0.04, h * 0.006),
+          child: Text(
+            'Chapters',
+            style: GoogleFonts.lato(fontSize: w * 0.032, fontWeight: FontWeight.w700, color: AppColors.gray, letterSpacing: 0.5),
+          ),
+        ),
+        SizedBox(
+          height: h * 0.052,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: EdgeInsets.symmetric(horizontal: w * 0.04),
+            itemCount: _chapters.length,
+            itemBuilder: (_, i) {
+              final chapter = _chapters[i];
+              final title = chapter['title']?.toString() ?? chapter['name']?.toString() ?? 'Chapter ${i + 1}';
+              final chStart = (chapter['start_time'] as num?)?.toDouble() ?? 0;
+              final startLabel = chapter['start_label']?.toString() ??
+                  _formatDuration(Duration(seconds: chStart.toInt()));
+              final isActive = i == activeIdx;
+
+              return GestureDetector(
+                onTap: () {
+                  _controller?.seekTo(Duration(seconds: chStart.toInt()));
+                  _controller?.play();
+                },
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  margin: EdgeInsets.only(right: w * 0.025),
+                  padding: EdgeInsets.symmetric(horizontal: w * 0.035, vertical: h * 0.008),
+                  decoration: BoxDecoration(
+                    color: isActive ? AppColors.primaryDark : AppColors.lightBg,
+                    borderRadius: BorderRadius.circular(w * 0.05),
+                    border: Border.all(
+                      color: isActive ? AppColors.primaryDark : AppColors.grayLight,
+                      width: 1.5,
+                    ),
+                    boxShadow: isActive
+                        ? [BoxShadow(color: AppColors.primaryDark.withOpacity(0.2), blurRadius: 8, offset: const Offset(0, 2))]
+                        : null,
+                  ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(
+                      isActive ? Icons.play_arrow_rounded : Icons.skip_next_rounded,
+                      size: w * 0.035,
+                      color: isActive ? AppColors.primaryLime : AppColors.gray,
+                    ),
+                    SizedBox(width: w * 0.012),
+                    Text(
+                      title,
+                      style: GoogleFonts.lato(
+                        fontSize: w * 0.03,
+                        fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+                        color: isActive ? AppColors.white : AppColors.primaryDark,
+                      ),
+                    ),
+                    SizedBox(width: w * 0.015),
+                    Text(
+                      startLabel,
+                      style: GoogleFonts.lato(
+                        fontSize: w * 0.026,
+                        color: isActive ? AppColors.primaryLime : AppColors.gray,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ]),
+                ),
+              );
+            },
+          ),
+        ),
+        SizedBox(height: h * 0.008),
+      ],
     );
   }
 

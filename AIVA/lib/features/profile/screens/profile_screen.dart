@@ -116,6 +116,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  Future<void> _confirmLogout(BuildContext context, double dvpw) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(dvpw * 0.05)),
+        title: Text('Sign Out', style: GoogleFonts.lato(fontWeight: FontWeight.w800, fontSize: dvpw * 0.048, color: AppColors.primaryDark)),
+        content: Text('Are you sure you want to sign out?', style: GoogleFonts.lato(fontSize: dvpw * 0.036, color: AppColors.gray, height: 1.4)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Cancel', style: GoogleFonts.lato(color: AppColors.gray, fontWeight: FontWeight.w600)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.red,
+              foregroundColor: AppColors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(dvpw * 0.025)),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Sign Out', style: GoogleFonts.lato(fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) _handleLogout(context);
+  }
+
   @override
   Widget build(BuildContext context) {
     final dvpw = MediaQuery.of(context).size.width;
@@ -163,12 +191,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   color: AppColors.white,
                 ),
               ),
-              Row(
-                children: [
-                  _buildHeaderIcon(Icons.share_rounded, dvpw),
-                  SizedBox(width: dvpw * 0.03),
-                  _buildHeaderIcon(Icons.settings_rounded, dvpw),
-                ],
+              GestureDetector(
+                onTap: () => _confirmLogout(context, dvpw),
+                child: Container(
+                  padding: EdgeInsets.symmetric(horizontal: dvpw * 0.035, vertical: dvpw * 0.022),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(dvpw * 0.03),
+                    border: Border.all(color: Colors.white.withOpacity(0.2)),
+                  ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.logout_rounded, size: dvpw * 0.045, color: AppColors.white),
+                    SizedBox(width: dvpw * 0.015),
+                    Text('Sign Out', style: GoogleFonts.lato(fontSize: dvpw * 0.032, fontWeight: FontWeight.w700, color: AppColors.white)),
+                  ]),
+                ),
               ),
             ],
           ),
@@ -284,17 +321,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildHeaderIcon(IconData icon, double dvpw) {
-    return Container(
-      padding: EdgeInsets.all(dvpw * 0.025),
-      decoration: BoxDecoration(
-        color: AppColors.darkerGray,
-        borderRadius: BorderRadius.circular(dvpw * 0.03),
-      ),
-      child: Icon(icon, size: dvpw * 0.055, color: AppColors.white),
     );
   }
 

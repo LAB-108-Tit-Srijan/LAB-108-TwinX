@@ -14,10 +14,13 @@ function formatBytes(bytes: number): string {
 }
 
 interface InlineUploadFormProps {
+  courseId: string;
+  courseName: string;
+  currentLectureCount: number;
   onSuccess: () => void;
 }
 
-function InlineUploadForm({ onSuccess }: InlineUploadFormProps) {
+function InlineUploadForm({ courseId, courseName, currentLectureCount, onSuccess }: InlineUploadFormProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [title, setTitle] = useState("");
