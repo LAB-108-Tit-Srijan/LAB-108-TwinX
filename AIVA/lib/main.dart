@@ -1,32 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:get/get.dart';
 import 'core/theme/app_theme.dart';
-import 'controllers/auth_controller.dart';
-import 'controllers/home_controller.dart';
-import 'controllers/explore_controller.dart';
-import 'controllers/video_controller.dart';
-import 'controllers/doubt_controller.dart';
-import 'screens/splash/splash_screen.dart';
-import 'screens/onboarding/onboarding_screen.dart';
-import 'screens/auth/login_screen.dart';
-import 'screens/auth/otp_screen.dart';
-import 'screens/home/home_screen.dart';
-import 'screens/video_player/video_player_screen.dart';
-import 'screens/settings/settings_screen.dart';
+import 'features/splash/screens/splash_screen.dart';
+import 'features/home/screens/home_screen.dart';
+import 'features/explore/screens/explore_screen.dart';
+import 'features/ai_chat/screens/ai_chat_screen.dart';
+import 'features/progress/screens/progress_screen.dart';
+import 'features/profile/screens/profile_screen.dart';
+import 'features/roadmap/screens/roadmap_screen.dart';
+import 'features/todo/screens/todo_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-    statusBarColor: Colors.transparent,
-    statusBarIconBrightness: Brightness.dark,
-  ));
-  Get.put(AuthController());
-  Get.put(HomeController());
-  Get.put(ExploreController());
-  Get.put(VideoController());
-  Get.put(DoubtController());
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.light,
+    ),
+  );
   runApp(const AIVAApp());
 }
 
@@ -35,20 +26,20 @@ class AIVAApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GetMaterialApp(
-      title: 'AIVA',
+    return MaterialApp(
+      title: 'AIVA - AI Study Assistant',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
-      initialRoute: '/splash',
-      getPages: [
-        GetPage(name: '/splash', page: () => const SplashScreen()),
-        GetPage(name: '/onboarding', page: () => const OnboardingScreen()),
-        GetPage(name: '/login', page: () => const LoginScreen()),
-        GetPage(name: '/otp', page: () => const OtpScreen()),
-        GetPage(name: '/home', page: () => const HomeScreen()),
-        GetPage(name: '/video', page: () => const VideoPlayerScreen()),
-        GetPage(name: '/settings', page: () => const SettingsScreen()),
-      ],
+      home: const SplashScreen(),
+      routes: {
+        '/home': (_) => const HomeScreen(),
+        '/explore': (_) => const ExploreScreen(),
+        '/ai-chat': (_) => const AiChatScreen(),
+        '/progress': (_) => const ProgressScreen(),
+        '/profile': (_) => const ProfileScreen(),
+        '/roadmap': (_) => const RoadmapScreen(),
+        '/todo': (_) => const TodoScreen(),
+      },
     );
   }
 }

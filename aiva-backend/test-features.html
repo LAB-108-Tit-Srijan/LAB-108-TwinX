@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>AIVA Backend Feature Tester</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #0f0f1a; color: #e2e8f0; min-height: 100vh; }
+
+    .app { display: grid; grid-template-columns: 280px 1fr; min-height: 100vh; }
+
+    /* Sidebar */
+    .sidebar { background: #1a1a2e; border-right: 1px solid #2d2d4e; padding: 20px; display: flex; flex-direction: column; gap: 8px; }
+    .sidebar h1 { font-size: 18px; font-weight: 700; color: #a78bfa; margin-bottom: 12px; }
+    .sidebar h1 span { display: block; font-size: 11px; font-weight: 400; color: #64748b; margin-top: 2px; }
+    .nav-btn { padding: 10px 14px; border-radius: 10px; border: none; background: transparent; color: #94a3b8; cursor: pointer; text-align: left; font-size: 13px; font-weight: 500; transition: all .15s; }
+    .nav-btn:hover { background: #252540; color: #e2e8f0; }
+    .nav-btn.active { background: #6c63ff22; color: #a78bfa; border-left: 3px solid #6c63ff; }
+    .nav-sep { height: 1px; background: #2d2d4e; margin: 8px 0; }
+
+    /* Main */
+    .main { padding: 28px; overflow-y: auto; }
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    h2 { font-size: 20px; font-weight: 700; color: #f1f5f9; margin-bottom: 6px; }
+    .subtitle { font-size: 13px; color: #64748b; margin-bottom: 20px; }
+
+    /* Cards */
+    .card { background: #1a1a2e; border: 1px solid #2d2d4e; border-radius: 14px; padding: 20px; margin-bottom: 16px; }
+    .card-title { font-size: 13px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 12px; }
+
+    /* Form elements */
+    input[type=text], input[type=number], textarea, select {
+      width: 100%; padding: 10px 12px; background: #0f0f1a; border: 1px solid #2d2d4e;
+      border-radius: 8px; color: #e2e8f0; font-size: 13px; outline: none; font-family: inherit;
+    }
+    input[type=text]:focus, input[type=number]:focus, textarea:focus, select:focus { border-color: #6c63ff; }
+    textarea { resize: vertical; min-height: 80px; }
+    label { display: block; font-size: 12px; color: #64748b; margin-bottom: 4px; margin-top: 10px; }
+    label:first-child { margin-top: 0; }
+
+    /* Buttons */
+    .btn { padding: 9px 18px; border-radius: 8px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; transition: all .15s; }
+    .btn-primary { background: linear-gradient(135deg, #6c63ff, #8b5cf6); color: white; }
+    .btn-primary:hover { opacity: .88; }
+    .btn-primary:disabled { opacity: .4; cursor: not-allowed; }
+    .btn-ghost { background: #252540; color: #94a3b8; }
+    .btn-ghost:hover { background: #2d2d4e; color: #e2e8f0; }
+    .btn-danger { background: #ef444422; color: #ef4444; border: 1px solid #ef444444; }
+    .btn-danger:hover { background: #ef444433; }
+    .btn-row { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+
+    /* Status / result box */
+    .result-box { background: #0a0a14; border: 1px solid #2d2d4e; border-radius: 10px; padding: 14px; margin-top: 12px; font-size: 12px; font-family: 'Courier New', monospace; max-height: 360px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; color: #94a3b8; }
+    .result-box.ok { border-color: #22c55e44; color: #86efac; }
+    .result-box.err { border-color: #ef444444; color: #fca5a5; }
+
+    /* Progress bar */
+    .progress-wrap { background: #252540; border-radius: 999px; height: 8px; overflow: hidden; margin-top: 10px; }
+    .progress-bar { height: 100%; background: linear-gradient(90deg, #6c63ff, #a78bfa); border-radius: 999px; transition: width .3s; }
+
+    /* Badge */
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+    .badge-ready { background: #22c55e22; color: #4ade80; border: 1px solid #22c55e44; }
+    .badge-processing, .badge-transcribing { background: #3b82f622; color: #60a5fa; border: 1px solid #3b82f644; }
+    .badge-uploading { background: #64748b22; color: #94a3b8; border: 1px solid #64748b44; }
+    .badge-failed { background: #ef444422; color: #f87171; border: 1px solid #ef444444; }
+
+    /* Lectures table */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; padding: 10px 14px; font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: .05em; border-bottom: 1px solid #2d2d4e; }
+    td { padding: 12px 14px; border-bottom: 1px solid #1e1e36; vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #252540; }
+    .td-id { font-family: monospace; font-size: 11px; color: #64748b; }
+
+    /* Tabs */
+    .tabs { display: flex; gap: 4px; border-bottom: 1px solid #2d2d4e; margin-bottom: 18px; }
+    .tab { padding: 8px 16px; font-size: 13px; font-weight: 500; color: #64748b; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; background: none; border-top: none; border-left: none; border-right: none; transition: all .15s; }
+    .tab.active { color: #a78bfa; border-bottom-color: #6c63ff; }
+    .tab:hover:not(.active) { color: #94a3b8; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* Upload area */
+    .drop-zone { border: 2px dashed #2d2d4e; border-radius: 12px; padding: 36px; text-align: center; cursor: pointer; transition: all .2s; }
+    .drop-zone:hover, .drop-zone.drag { border-color: #6c63ff; background: #6c63ff0a; }
+    .drop-zone p { font-size: 13px; color: #64748b; margin-top: 8px; }
+    .drop-zone strong { color: #a78bfa; font-size: 15px; }
+
+    /* Steps */
+    .steps { display: flex; gap: 0; margin: 14px 0; }
+    .step { flex: 1; text-align: center; position: relative; }
+    .step::before { content: ''; position: absolute; top: 12px; left: -50%; width: 100%; height: 2px; background: #2d2d4e; z-index: 0; }
+    .step:first-child::before { display: none; }
+    .step-dot { width: 24px; height: 24px; border-radius: 50%; border: 2px solid #2d2d4e; background: #0f0f1a; margin: 0 auto 6px; font-size: 10px; display: flex; align-items: center; justify-content: center; position: relative; z-index: 1; color: #64748b; }
+    .step.done .step-dot { background: #22c55e; border-color: #22c55e; color: white; }
+    .step.active .step-dot { background: #6c63ff; border-color: #6c63ff; color: white; animation: pulse 1.2s infinite; }
+    .step-label { font-size: 10px; color: #64748b; }
+    .step.done .step-label, .step.active .step-label { color: #94a3b8; }
+    @keyframes pulse { 0%,100%{box-shadow:0 0 0 0 #6c63ff44} 50%{box-shadow:0 0 0 6px #6c63ff00} }
+
+    /* SSE stream */
+    .stream-box { background: #0a0a14; border: 1px solid #2d2d4e; border-radius: 10px; padding: 14px; min-height: 80px; font-size: 13px; line-height: 1.7; color: #e2e8f0; max-height: 300px; overflow-y: auto; }
+    .stream-ts { display: inline-block; background: #6c63ff22; color: #a78bfa; border-radius: 4px; padding: 0 4px; font-size: 11px; font-family: monospace; cursor: pointer; }
+
+    /* Chapters */
+    .chapter-card { display: flex; gap: 12px; padding: 12px; border-radius: 10px; background: #252540; margin-bottom: 8px; align-items: flex-start; }
+    .chapter-thumb { width: 36px; height: 36px; border-radius: 8px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; color: white; }
+    .chapter-info h4 { font-size: 13px; font-weight: 600; color: #f1f5f9; }
+    .chapter-info p { font-size: 12px; color: #64748b; margin-top: 2px; }
+    .chapter-ts { font-size: 11px; font-family: monospace; color: #a78bfa; background: #6c63ff22; padding: 1px 6px; border-radius: 4px; display: inline-block; margin-top: 4px; }
+
+    /* Topic pills */
+    .topic-pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; background: #252540; color: #94a3b8; border: 1px solid #2d2d4e; margin: 2px; }
+
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    @media (max-width: 900px) { .row2 { grid-template-columns: 1fr; } .app { grid-template-columns: 1fr; } .sidebar { border-right: none; border-bottom: 1px solid #2d2d4e; } }
+  </style>
+</head>
+<body>
+<div class="app">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <h1>AIVA Tester <span>localhost:8000</span></h1>
+    <button class="nav-btn active" onclick="showPanel('upload')">📤 Upload Video</button>
+    <button class="nav-btn" onclick="showPanel('lectures')">📋 Lectures List</button>
+    <div class="nav-sep"></div>
+    <button class="nav-btn" onclick="showPanel('status')">🔄 Status & Queue</button>
+    <button class="nav-btn" onclick="showPanel('summary')">📝 Summary</button>
+    <button class="nav-btn" onclick="showPanel('transcript')">📜 Transcript Sync</button>
+    <button class="nav-btn" onclick="showPanel('chapters')">🎬 Chapters</button>
+    <div class="nav-sep"></div>
+    <button class="nav-btn" onclick="showPanel('ask')">💬 Ask (Q&amp;A)</button>
+    <button class="nav-btn" onclick="showPanel('pause')">⏸️ Pause Context</button>
+    <div class="nav-sep"></div>
+    <button class="nav-btn" onclick="showPanel('health')">❤️ Health Check</button>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+
+    <!-- ── UPLOAD ── -->
+    <div class="panel active" id="panel-upload">
+      <h2>Upload Video</h2>
+      <p class="subtitle">POST /api/video/upload — multipart/form-data</p>
+
+      <div class="card">
+        <div class="card-title">Video File</div>
+        <div class="drop-zone" id="dropZone" onclick="document.getElementById('videoFile').click()"
+          ondragover="event.preventDefault();this.classList.add('drag')"
+          ondragleave="this.classList.remove('drag')"
+          ondrop="handleDrop(event)">
+          <strong id="dropLabel">Click or drag a video file here</strong>
+          <p id="dropSub">MP4, MKV, MOV, AVI — any size (ffmpeg handles compression)</p>
+        </div>
+        <input type="file" id="videoFile" accept="video/*" style="display:none" onchange="onFileSelect(this)" />
+
+        <label>Title</label>
+        <input type="text" id="upTitle" placeholder="e.g. Introduction to Vector Databases" />
+
+        <label>Instructor</label>
+        <input type="text" id="upInstructor" placeholder="e.g. Dr. Smith" />
+
+        <label>Course</label>
+        <input type="text" id="upCourse" placeholder="e.g. Database Design" />
+
+        <div class="btn-row">
+          <button class="btn btn-primary" id="upBtn" onclick="doUpload()">Upload &amp; Process</button>
+        </div>
+
+        <div id="upProgress" style="display:none">
+          <div class="progress-wrap" style="margin-top:14px">
+            <div class="progress-bar" id="upBar" style="width:0%"></div>
+          </div>
+          <p style="font-size:12px;color:#64748b;margin-top:6px" id="upPct">Uploading… 0%</p>
+        </div>
+        <div id="upResult"></div>
+      </div>
+    </div>
+
+    <!-- ── LECTURES ── -->
+    <div class="panel" id="panel-lectures">
+      <h2>All Lectures</h2>
+      <p class="subtitle">GET /api/lectures</p>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+          <span class="card-title" style="margin-bottom:0">Lectures</span>
+          <button class="btn btn-ghost" onclick="fetchLectures()">↻ Refresh</button>
+        </div>
+        <div id="lectureTable">
+          <p style="color:#64748b;font-size:13px">Click Refresh to load lectures.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── STATUS ── -->
+    <div class="panel" id="panel-status">
+      <h2>Processing Status</h2>
+      <p class="subtitle">GET /api/video/:id/status — includes queue step</p>
+      <div class="card">
+        <label>Lecture ID</label>
+        <input type="text" id="statusId" placeholder="paste lecture UUID" />
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="fetchStatus()">Get Status</button>
+          <button class="btn btn-ghost" id="statusPollBtn" onclick="togglePoll()">▶ Start Polling</button>
+        </div>
+
+        <div id="stepsViz" style="display:none;margin-top:16px">
+          <div class="steps" id="stepsRow"></div>
+        </div>
+
+        <div id="statusResult"></div>
+      </div>
+    </div>
+
+    <!-- ── SUMMARY ── -->
+    <div class="panel" id="panel-summary">
+      <h2>Lecture Summary</h2>
+      <p class="subtitle">GET /api/lectures/:id/summary — Feature 1</p>
+      <div class="card">
+        <label>Lecture ID</label>
+        <input type="text" id="summaryId" placeholder="paste lecture UUID" />
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="fetchSummary()">Load Summary</button>
+        </div>
+        <div id="summaryResult"></div>
+      </div>
+    </div>
+
+    <!-- ── TRANSCRIPT ── -->
+    <div class="panel" id="panel-transcript">
+      <h2>Transcript Sync</h2>
+      <p class="subtitle">Feature 3 — full transcript + time-based lookup</p>
+      <div class="row2">
+        <div class="card">
+          <div class="card-title">Full Transcript</div>
+          <label>Lecture ID</label>
+          <input type="text" id="txId" placeholder="UUID" />
+          <div class="btn-row">
+            <button class="btn btn-primary" onclick="fetchTranscript()">Load Transcript</button>
+          </div>
+          <div id="txResult"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Sync by Timestamp</div>
+          <label>Lecture ID</label>
+          <input type="text" id="syncId" placeholder="UUID" />
+          <label>Timestamp (seconds)</label>
+          <input type="number" id="syncT" placeholder="e.g. 120" min="0" />
+          <div class="btn-row">
+            <button class="btn btn-primary" onclick="fetchSync()">Find Chunk at T</button>
+          </div>
+          <div id="syncResult"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── CHAPTERS ── -->
+    <div class="panel" id="panel-chapters">
+      <h2>Chapters</h2>
+      <p class="subtitle">Feature 4 — YouTube-style chapters from Claude</p>
+      <div class="row2">
+        <div class="card">
+          <div class="card-title">All Chapters</div>
+          <label>Lecture ID</label>
+          <input type="text" id="chId" placeholder="UUID" />
+          <div class="btn-row">
+            <button class="btn btn-primary" onclick="fetchChapters()">Load Chapters</button>
+          </div>
+          <div id="chResult"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Current Chapter</div>
+          <label>Lecture ID</label>
+          <input type="text" id="chCurId" placeholder="UUID" />
+          <label>Timestamp (seconds)</label>
+          <input type="number" id="chCurT" placeholder="e.g. 300" min="0" />
+          <div class="btn-row">
+            <button class="btn btn-primary" onclick="fetchCurrentChapter()">Find Current Chapter</button>
+          </div>
+          <div id="chCurResult"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── ASK ── -->
+    <div class="panel" id="panel-ask">
+      <h2>Ask a Question (Q&amp;A)</h2>
+      <p class="subtitle">POST /api/ask — SSE streaming response</p>
+      <div class="card">
+        <div class="tabs">
+          <button class="tab active" onclick="switchTab(this,'askForm')">Ask</button>
+          <button class="tab" onclick="switchTab(this,'askHistory')">History</button>
+        </div>
+        <div class="tab-panel active" id="askForm">
+          <label>Lecture ID</label>
+          <input type="text" id="askId" placeholder="UUID" />
+          <label>Question</label>
+          <textarea id="askQ" placeholder="What is the difference between B-trees and LSM trees?"></textarea>
+          <label>Language</label>
+          <select id="askLang">
+            <option value="en">English</option>
+            <option value="hi">Hindi (Hinglish)</option>
+          </select>
+          <div class="btn-row">
+            <button class="btn btn-primary" id="askBtn" onclick="doAsk()">Ask AIVA</button>
+            <button class="btn btn-ghost" onclick="clearAsk()">Clear</button>
+          </div>
+        </div>
+        <div class="tab-panel" id="askHistory">
+          <p style="font-size:12px;color:#64748b;margin-bottom:10px">Chat history sent with next question</p>
+          <div id="chatHistory" style="font-size:12px;color:#94a3b8">No history yet.</div>
+          <div class="btn-row">
+            <button class="btn btn-danger" onclick="clearHistory()">Clear History</button>
+          </div>
+        </div>
+        <div style="margin-top:14px">
+          <div class="card-title">Response</div>
+          <div class="stream-box" id="askStream">Waiting for response…</div>
+          <div id="askMeta" style="margin-top:8px;font-size:12px;color:#64748b"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── PAUSE CONTEXT ── -->
+    <div class="panel" id="panel-pause">
+      <h2>Pause-Point Context (Feature 2)</h2>
+      <p class="subtitle">Simulates student pausing video — passes timestamp window to Claude</p>
+      <div class="card">
+        <label>Lecture ID</label>
+        <input type="text" id="pauseId" placeholder="UUID" />
+        <label>Question</label>
+        <textarea id="pauseQ" placeholder="What was just explained?"></textarea>
+        <div class="row2" style="margin-top:4px">
+          <div>
+            <label>Paused At (seconds)</label>
+            <input type="number" id="pauseSec" placeholder="e.g. 240" min="0" />
+          </div>
+          <div>
+            <label>Timestamp Label</label>
+            <input type="text" id="pauseLabel" placeholder="e.g. 04:00" />
+          </div>
+        </div>
+        <div class="row2" style="margin-top:4px">
+          <div>
+            <label>Window Before (s, default 120)</label>
+            <input type="number" id="pauseBefore" value="120" min="0" />
+          </div>
+          <div>
+            <label>Window After (s, default 30)</label>
+            <input type="number" id="pauseAfter" value="30" min="0" />
+          </div>
+        </div>
+        <label>Language</label>
+        <select id="pauseLang">
+          <option value="en">English</option>
+          <option value="hi">Hindi (Hinglish)</option>
+        </select>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="pauseBtn" onclick="doPause()">Ask with Pause Context</button>
+        </div>
+        <div style="margin-top:14px">
+          <div class="card-title">Response</div>
+          <div class="stream-box" id="pauseStream">Waiting for response…</div>
+          <div id="pauseMeta" style="margin-top:8px;font-size:12px;color:#64748b"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── HEALTH ── -->
+    <div class="panel" id="panel-health">
+      <h2>Health Check</h2>
+      <p class="subtitle">GET /health</p>
+      <div class="card">
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="doHealth()">Ping Server</button>
+        </div>
+        <div id="healthResult"></div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+// When served from the backend itself (/test), use same-origin. Otherwise fall back to localhost.
+const BASE = (location.hostname === 'localhost' && location.port === '8000') ? '' : 'http://localhost:8000';
+
+// ── Navigation ──
+function showPanel(name) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('panel-' + name).classList.add('active');
+  event.currentTarget.classList.add('active');
+}
+
+function switchTab(btn, panelId) {
+  const tabs = btn.closest('.tabs');
+  tabs.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  const container = tabs.nextElementSibling.closest('.card') || tabs.parentElement;
+  container.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById(panelId).classList.add('active');
+}
+
+// ── Helpers ──
+function resultBox(id, json, isOk) {
+  const el = document.getElementById(id);
+  el.innerHTML = `<div class="result-box ${isOk?'ok':'err'}">${JSON.stringify(json, null, 2)}</div>`;
+}
+
+async function get(path) {
+  const r = await fetch(BASE + path);
+  return r.json();
+}
+
+// ── Health ──
+async function doHealth() {
+  try {
+    const d = await get('/health');
+    resultBox('healthResult', d, d.status === 'ok');
+  } catch(e) { resultBox('healthResult', { error: e.message }, false); }
+}
+
+// ── Upload ──
+let uploadFile = null;
+
+function onFileSelect(input) {
+  uploadFile = input.files[0];
+  updateDropLabel();
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('dropZone').classList.remove('drag');
+  uploadFile = e.dataTransfer.files[0];
+  updateDropLabel();
+}
+
+function updateDropLabel() {
+  if (!uploadFile) return;
+  document.getElementById('dropLabel').textContent = uploadFile.name;
+  document.getElementById('dropSub').textContent = (uploadFile.size / 1024 / 1024).toFixed(1) + ' MB';
+}
+
+async function doUpload() {
+  if (!uploadFile) { alert('Select a video file first.'); return; }
+  const title = document.getElementById('upTitle').value.trim();
+  const instructor = document.getElementById('upInstructor').value.trim();
+  const course = document.getElementById('upCourse').value.trim();
+  if (!title || !instructor || !course) { alert('Fill in Title, Instructor, Course.'); return; }
+
+  const fd = new FormData();
+  fd.append('video', uploadFile);
+  fd.append('title', title);
+  fd.append('instructor', instructor);
+  fd.append('course', course);
+
+  document.getElementById('upBtn').disabled = true;
+  document.getElementById('upProgress').style.display = 'block';
+  document.getElementById('upResult').innerHTML = '';
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', BASE + '/api/video/upload');
+
+  xhr.upload.onprogress = e => {
+    const pct = Math.round(e.loaded / e.total * 100);
+    document.getElementById('upBar').style.width = pct + '%';
+    document.getElementById('upPct').textContent = `Uploading… ${pct}%`;
+  };
+
+  xhr.onload = () => {
+    document.getElementById('upBtn').disabled = false;
+    document.getElementById('upPct').textContent = 'Upload complete — processing queued';
+    try {
+      const d = JSON.parse(xhr.responseText);
+      resultBox('upResult', d, d.success);
+      if (d.success && d.lecture_id) {
+        // pre-fill other panels
+        ['statusId','summaryId','txId','syncId','chId','chCurId','askId','pauseId'].forEach(id => {
+          document.getElementById(id).value = d.lecture_id;
+        });
+      }
+    } catch { resultBox('upResult', { error: 'Bad response' }, false); }
+  };
+
+  xhr.onerror = () => {
+    document.getElementById('upBtn').disabled = false;
+    resultBox('upResult', { error: 'Network error — is the server running?' }, false);
+  };
+
+  xhr.send(fd);
+}
+
+// ── Lectures list ──
+async function fetchLectures() {
+  try {
+    const d = await get('/api/lectures');
+    if (!d.success) { resultBox('lectureTable', d, false); return; }
+    if (d.lectures.length === 0) {
+      document.getElementById('lectureTable').innerHTML = '<p style="color:#64748b;font-size:13px">No lectures yet.</p>';
+      return;
+    }
+    let html = `<table><thead><tr><th>#</th><th>Title</th><th>Status</th><th>Chunks</th><th>Duration</th><th>ID</th><th>Actions</th></tr></thead><tbody>`;
+    d.lectures.forEach((l, i) => {
+      const dur = l.duration > 0 ? fmtDur(l.duration) : '—';
+      html += `<tr>
+        <td>${i+1}</td>
+        <td><strong style="color:#f1f5f9">${esc(l.title)}</strong><br><span style="font-size:11px;color:#64748b">${esc(l.instructor)}</span></td>
+        <td><span class="badge badge-${l.status}">${l.status}</span></td>
+        <td>${l.status==='ready'?l.chunks_count:'—'}</td>
+        <td>${dur}</td>
+        <td class="td-id">${l.id.slice(0,8)}…</td>
+        <td><button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="fillId('${l.id}')">Use ID</button></td>
+      </tr>`;
+    });
+    html += '</tbody></table>';
+    document.getElementById('lectureTable').innerHTML = html;
+  } catch(e) { document.getElementById('lectureTable').innerHTML = `<div class="result-box err">Error: ${e.message}</div>`; }
+}
+
+function fillId(id) {
+  ['statusId','summaryId','txId','syncId','chId','chCurId','askId','pauseId'].forEach(fid => {
+    document.getElementById(fid).value = id;
+  });
+}
+
+function fmtDur(s) {
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = Math.floor(s%60);
+  if (h>0) return `${h}h ${m}m`;
+  if (m>0) return `${m}m ${sec}s`;
+  return `${sec}s`;
+}
+
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ── Status & Queue ──
+const STEPS = ['transcribing','chunking','embedding','saving_chunks','indexing','generating_summary'];
+let pollInterval = null;
+
+function togglePoll() {
+  if (pollInterval) {
+    clearInterval(pollInterval);
+    pollInterval = null;
+    document.getElementById('statusPollBtn').textContent = '▶ Start Polling';
+  } else {
+    fetchStatus();
+    pollInterval = setInterval(fetchStatus, 3000);
+    document.getElementById('statusPollBtn').textContent = '⏹ Stop Polling';
+  }
+}
+
+async function fetchStatus() {
+  const id = document.getElementById('statusId').value.trim();
+  if (!id) { alert('Enter a Lecture ID.'); return; }
+  try {
+    const d = await get('/api/video/' + id + '/status');
+    renderSteps(d.current_step, d.status);
+    resultBox('statusResult', d, true);
+    if ((d.status === 'ready' || d.status === 'failed') && pollInterval) togglePoll();
+  } catch(e) { resultBox('statusResult', { error: e.message }, false); }
+}
+
+function renderSteps(currentStep, status) {
+  document.getElementById('stepsViz').style.display = 'block';
+  const currentIdx = STEPS.indexOf(currentStep);
+  const done = status === 'ready';
+  let html = '';
+  STEPS.forEach((s, i) => {
+    const isDone = done || i < currentIdx;
+    const isActive = i === currentIdx && !done;
+    html += `<div class="step ${isDone?'done':''} ${isActive?'active':''}">
+      <div class="step-dot">${isDone ? '✓' : (i+1)}</div>
+      <div class="step-label">${s.replace('_',' ')}</div>
+    </div>`;
+  });
+  document.getElementById('stepsRow').innerHTML = html;
+}
+
+// ── Summary ──
+async function fetchSummary() {
+  const id = document.getElementById('summaryId').value.trim();
+  if (!id) { alert('Enter a Lecture ID.'); return; }
+  try {
+    const d = await get('/api/lectures/' + id + '/summary');
+    if (!d.success) { resultBox('summaryResult', d, false); return; }
+
+    let html = '<div style="margin-top:12px">';
+
+    if (d.summary_full) {
+      html += `<div class="card-title" style="margin-top:0">Full Summary</div>
+        <p style="font-size:13px;line-height:1.7;color:#94a3b8;margin-bottom:16px">${esc(d.summary_full)}</p>`;
+    }
+
+    if (d.summary_topics && d.summary_topics.length > 0) {
+      html += `<div class="card-title">Topics (${d.summary_topics.length})</div>`;
+      d.summary_topics.forEach(t => {
+        html += `<div style="margin-bottom:10px;padding:10px;background:#252540;border-radius:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span class="topic-pill">${esc(t.topic)}</span>
+            <span style="font-size:11px;color:#64748b">${t.start_timestamp} · ${t.chunk_count} chunk${t.chunk_count!==1?'s':''}</span>
+          </div>
+          <p style="font-size:12px;color:#94a3b8;margin-top:6px">${esc(t.summary)}</p>
+        </div>`;
+      });
+    }
+
+    html += '</div>';
+    document.getElementById('summaryResult').innerHTML = html;
+  } catch(e) { resultBox('summaryResult', { error: e.message }, false); }
+}
+
+// ── Transcript ──
+async function fetchTranscript() {
+  const id = document.getElementById('txId').value.trim();
+  if (!id) { alert('Enter a Lecture ID.'); return; }
+  try {
+    const d = await get('/api/lectures/' + id + '/transcript');
+    if (!d.success) { resultBox('txResult', d, false); return; }
+    let html = `<p style="font-size:12px;color:#64748b;margin:10px 0">${d.total} chunks</p>
+      <div class="result-box ok" style="max-height:400px">`;
+    d.transcript.forEach(c => {
+      html += `<div style="margin-bottom:8px"><span style="color:#a78bfa;font-family:monospace">[${c.timestamp_label}]</span> <span style="color:#64748b;font-size:11px">${c.topic}</span>\n${c.text}\n</div>`;
+    });
+    html += '</div>';
+    document.getElementById('txResult').innerHTML = html;
+  } catch(e) { resultBox('txResult', { error: e.message }, false); }
+}
+
+async function fetchSync() {
+  const id = document.getElementById('syncId').value.trim();
+  const t = document.getElementById('syncT').value;
+  if (!id || t === '') { alert('Enter Lecture ID and timestamp.'); return; }
+  try {
+    const d = await get('/api/lectures/' + id + '/transcript/sync?t=' + t);
+    resultBox('syncResult', d, d.success);
+  } catch(e) { resultBox('syncResult', { error: e.message }, false); }
+}
+
+// ── Chapters ──
+async function fetchChapters() {
+  const id = document.getElementById('chId').value.trim();
+  if (!id) { alert('Enter a Lecture ID.'); return; }
+  try {
+    const d = await get('/api/lectures/' + id + '/chapters');
+    if (!d.success) { resultBox('chResult', d, false); return; }
+    if (!d.chapters || d.chapters.length === 0) {
+      document.getElementById('chResult').innerHTML = '<p style="font-size:13px;color:#64748b;margin-top:12px">No chapters generated yet. Ensure lecture is ready and summary was generated.</p>';
+      return;
+    }
+    let html = '<div style="margin-top:12px">';
+    d.chapters.forEach((ch, i) => {
+      html += `<div class="chapter-card">
+        <div class="chapter-thumb" style="background:${ch.thumbnail_color||'#6c63ff'}">${i+1}</div>
+        <div class="chapter-info">
+          <h4>${esc(ch.title)}</h4>
+          <p>${esc(ch.description)}</p>
+          <span class="chapter-ts">${ch.timestamp_label} (${ch.seconds}s)</span>
+        </div>
+      </div>`;
+    });
+    html += '</div>';
+    document.getElementById('chResult').innerHTML = html;
+  } catch(e) { resultBox('chResult', { error: e.message }, false); }
+}
+
+async function fetchCurrentChapter() {
+  const id = document.getElementById('chCurId').value.trim();
+  const t = document.getElementById('chCurT').value;
+  if (!id || t === '') { alert('Enter Lecture ID and timestamp.'); return; }
+  try {
+    const d = await get('/api/lectures/' + id + '/chapters/current?t=' + t);
+    resultBox('chCurResult', d, d.success);
+  } catch(e) { resultBox('chCurResult', { error: e.message }, false); }
+}
+
+// ── Ask ──
+let chatHistory = [];
+
+async function doAsk() {
+  const id = document.getElementById('askId').value.trim();
+  const q = document.getElementById('askQ').value.trim();
+  const lang = document.getElementById('askLang').value;
+  if (!id || !q) { alert('Enter Lecture ID and question.'); return; }
+
+  document.getElementById('askBtn').disabled = true;
+  document.getElementById('askStream').textContent = '';
+  document.getElementById('askMeta').textContent = '';
+
+  await streamAsk(
+    { lecture_id: id, question: q, language: lang, chat_history: chatHistory },
+    'askStream', 'askMeta',
+    (answer) => {
+      chatHistory.push({ role: 'student', content: q });
+      chatHistory.push({ role: 'aiva', content: answer });
+      renderHistory();
+    }
+  );
+
+  document.getElementById('askBtn').disabled = false;
+}
+
+function clearAsk() {
+  document.getElementById('askStream').textContent = 'Waiting for response…';
+  document.getElementById('askMeta').textContent = '';
+}
+
+function clearHistory() {
+  chatHistory = [];
+  renderHistory();
+}
+
+function renderHistory() {
+  const el = document.getElementById('chatHistory');
+  if (chatHistory.length === 0) { el.textContent = 'No history yet.'; return; }
+  el.innerHTML = chatHistory.map(m =>
+    `<div style="margin-bottom:8px"><span style="color:${m.role==='student'?'#60a5fa':'#a78bfa'}">${m.role==='student'?'You':'AIVA'}:</span> ${esc(m.content)}</div>`
+  ).join('');
+}
+
+// ── Pause Context ──
+async function doPause() {
+  const id = document.getElementById('pauseId').value.trim();
+  const q = document.getElementById('pauseQ').value.trim();
+  const sec = parseFloat(document.getElementById('pauseSec').value);
+  const label = document.getElementById('pauseLabel').value.trim() || `${Math.floor(sec/60)}:${String(Math.floor(sec%60)).padStart(2,'0')}`;
+  const before = parseInt(document.getElementById('pauseBefore').value) || 120;
+  const after = parseInt(document.getElementById('pauseAfter').value) || 30;
+  const lang = document.getElementById('pauseLang').value;
+
+  if (!id || !q || isNaN(sec)) { alert('Fill in Lecture ID, Question, and Paused At seconds.'); return; }
+
+  document.getElementById('pauseBtn').disabled = true;
+  document.getElementById('pauseStream').textContent = '';
+  document.getElementById('pauseMeta').textContent = '';
+
+  await streamAsk(
+    {
+      lecture_id: id, question: q, language: lang, chat_history: [],
+      pause_context: { seconds: sec, timestamp_label: label, window_before: before, window_after: after }
+    },
+    'pauseStream', 'pauseMeta',
+    () => {}
+  );
+
+  document.getElementById('pauseBtn').disabled = false;
+}
+
+// ── SSE Streaming ──
+async function streamAsk(body, streamId, metaId, onDone) {
+  const streamEl = document.getElementById(streamId);
+  const metaEl = document.getElementById(metaId);
+  let fullText = '';
+
+  try {
+    const resp = await fetch(BASE + '/api/ask', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json();
+      streamEl.textContent = 'Error: ' + (err.error || resp.statusText);
+      return;
+    }
+
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      for (const line of dec.decode(value).split('\n')) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const data = JSON.parse(line.slice(6));
+          if (data.type === 'delta') {
+            fullText += data.text;
+            streamEl.innerHTML = renderAnswer(fullText);
+            streamEl.scrollTop = streamEl.scrollHeight;
+          }
+          if (data.type === 'done') {
+            metaEl.textContent = `Sources: ${data.source_chunks?.length || 0} chunks · Timestamps: ${(data.timestamps||[]).join(', ') || 'none'}`;
+            onDone(fullText);
+          }
+          if (data.type === 'error') {
+            streamEl.textContent = 'Error: ' + data.message;
+          }
+        } catch { /* skip malformed */ }
+      }
+    }
+  } catch(e) {
+    streamEl.textContent = 'Network error: ' + e.message;
+  }
+}
+
+function renderAnswer(text) {
+  // Replace [MM:SS] timestamps with styled spans
+  return esc(text).replace(/\[(\d{1,2}:\d{2})\]/g, '<span class="stream-ts">[$1]</span>');
+}
+</script>
+</body>
+</html>
