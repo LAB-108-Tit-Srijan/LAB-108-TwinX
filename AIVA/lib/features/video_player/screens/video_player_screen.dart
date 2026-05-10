@@ -48,6 +48,12 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   bool _transcriptLoading = true;
   bool _summaryLoading = true;
 
+  // Caption + transcript scroll state
+  bool _showCaptions = true;
+  bool _autoScrollTranscript = true;
+  bool _programmaticScrolling = false;
+  Timer? _userScrollTimer;
+
   // Student notes
   String? _notesContent;
   bool _notesLoading = true;
@@ -55,6 +61,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   // AIVA chat state
   final List<Map<String, dynamic>> _chatMessages = [];
   final TextEditingController _chatInput = TextEditingController();
+  final FocusNode _chatFocusNode = FocusNode();
   bool _chatLoading = false;
   final ScrollController _chatScrollController = ScrollController();
   final ScrollController _transcriptScrollController = ScrollController();
@@ -75,6 +82,17 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     _loadSummary();
     _loadChatHistory();
     _loadNotes();
+
+    // Detect when user manually scrolls the transcript — pause auto-scroll briefly
+    _transcriptScrollController.addListener(() {
+      if (!_programmaticScrolling && _autoScrollTranscript) {
+        setState(() => _autoScrollTranscript = false);
+        _userScrollTimer?.cancel();
+        _userScrollTimer = Timer(const Duration(seconds: 6), () {
+          if (mounted) setState(() => _autoScrollTranscript = true);
+        });
+      }
+    });
   }
 
   @override
@@ -82,8 +100,10 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     _controller?.dispose();
     _hideControlsTimer?.cancel();
     _progressTimer?.cancel();
+    _userScrollTimer?.cancel();
     _tabController.dispose();
     _chatInput.dispose();
+    _chatFocusNode.dispose();
     _chatScrollController.dispose();
     _transcriptScrollController.dispose();
     SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
@@ -119,28 +139,24 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
     setState(() {});
 
-    if (_transcript.isNotEmpty && _tabController.index == 1) {
-      final pos2 = _controller?.value.position.inSeconds.toDouble() ?? 0;
-      for (int i = 0; i < _transcript.length; i++) {
-        final start = (_transcript[i]['start_time'] as num?)?.toDouble() ?? 0;
-        final end = (_transcript[i]['end_time'] as num?)?.toDouble() ?? start + 30;
-        if (pos2 >= start && pos2 < end) {
-          const itemHeight = 80.0;
-          final offset = i * itemHeight;
-          if (_transcriptScrollController.hasClients) {
-            _transcriptScrollController.animateTo(
-              offset.clamp(0.0, _transcriptScrollController.position.maxScrollExtent),
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeOut,
-            );
-          }
-          break;
-        }
+    // Auto-scroll transcript to active chunk (only when user isn't manually scrolling)
+    if (_autoScrollTranscript && _transcript.isNotEmpty && _tabController.index == 1) {
+      final activeIdx = _findActiveChunkIndex();
+      if (activeIdx >= 0 && _transcriptScrollController.hasClients) {
+        final fraction = activeIdx / _transcript.length;
+        final target = (fraction * _transcriptScrollController.position.maxScrollExtent)
+            .clamp(0.0, _transcriptScrollController.position.maxScrollExtent);
+        _programmaticScrolling = true;
+        _transcriptScrollController
+            .animateTo(target,
+                duration: const Duration(milliseconds: 400),
+                curve: Curves.easeOut)
+            .then((_) => _programmaticScrolling = false);
       }
     }
   }
 
-  Future<void> _tryTriggerQuiz() async {
+  Future<void> _tryTriggerQuiz({bool manual = false}) async {
     try {
       final quizData = await QuizService.getQuiz(widget.lectureId);
       if (!mounted) return;
@@ -155,8 +171,30 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
           backgroundColor: Colors.transparent,
           builder: (_) => QuizModal(lectureId: widget.lectureId, questions: questions!),
         );
+      } else if (manual) {
+        // Show feedback to user when triggered manually and quiz isn't ready
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(quizData['error']?.toString() ?? 'Quiz not available yet — try again after the lecture is fully processed.'),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ));
+        }
+        // Reset so auto-trigger can fire again next time
+        setState(() => _quizTriggered = false);
+      } else {
+        // Auto-trigger failed (transcript not ready, etc.) — reset so we can retry
+        setState(() => _quizTriggered = false);
       }
-    } catch (_) {}
+    } catch (e) {
+      if (manual && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Could not load quiz. Please check your connection and try again.'),
+          behavior: SnackBarBehavior.floating,
+        ));
+      }
+      setState(() => _quizTriggered = false);
+    }
   }
 
   Future<void> _reportProgress() async {
@@ -296,6 +334,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     final text = (prefilled ?? _chatInput.text).trim();
     if (text.isEmpty || _chatLoading) return;
     _chatInput.clear();
+    _chatFocusNode.unfocus(); // dismiss keyboard
 
     final currentPos = _controller?.value.position.inSeconds ?? 0;
     setState(() {
@@ -455,12 +494,12 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
               child: _buildControlsOverlay(w, videoH),
             ),
 
-            // Caption overlay
-            if (!_showControls && _transcript.isNotEmpty && _isInitialized)
+            // Caption overlay (only when CC enabled, controls hidden, transcript ready)
+            if (_showCaptions && !_showControls && _transcript.isNotEmpty && _isInitialized)
               Positioned(
-                bottom: w * 0.06,
-                left: w * 0.04,
-                right: w * 0.04,
+                bottom: w * 0.05,
+                left: w * 0.05,
+                right: w * 0.05,
                 child: _buildCaptionOverlay(w),
               ),
           ],
@@ -506,6 +545,25 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                     style: GoogleFonts.lato(fontSize: w * 0.034, fontWeight: FontWeight.w600, color: Colors.white),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                // CC toggle
+                GestureDetector(
+                  onTap: () => setState(() => _showCaptions = !_showCaptions),
+                  child: Container(
+                    padding: EdgeInsets.symmetric(horizontal: w * 0.02, vertical: w * 0.012),
+                    decoration: BoxDecoration(
+                      color: _showCaptions ? AppColors.primaryLime : Colors.white24,
+                      borderRadius: BorderRadius.circular(w * 0.015),
+                    ),
+                    child: Text(
+                      'CC',
+                      style: GoogleFonts.lato(
+                        fontSize: w * 0.026,
+                        fontWeight: FontWeight.w800,
+                        color: _showCaptions ? AppColors.primaryDark : Colors.white,
+                      ),
+                    ),
                   ),
                 ),
               ],
@@ -611,45 +669,43 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
   Widget _buildCaptionOverlay(double w) {
     final pos = _controller?.value.position.inSeconds.toDouble() ?? 0;
-    Map<String, dynamic>? activeChunk;
-    for (final chunk in _transcript) {
-      final start = (chunk['start_time'] as num?)?.toDouble() ?? 0;
-      final end = (chunk['end_time'] as num?)?.toDouble() ?? start + 30;
-      if (pos >= start && pos < end) { activeChunk = chunk; break; }
-    }
-    if (activeChunk == null) return const SizedBox.shrink();
+    final activeIdx = _findActiveChunkIndex();
+    if (activeIdx < 0) return const SizedBox.shrink();
 
+    final activeChunk = _transcript[activeIdx];
     final chunkText = activeChunk['text'] as String? ?? '';
     final chunkStart = (activeChunk['start_time'] as num?)?.toDouble() ?? 0;
     final chunkEnd = (activeChunk['end_time'] as num?)?.toDouble() ?? chunkStart + 30;
-    final chunkDuration = (chunkEnd - chunkStart).clamp(0.1, 300.0);
+    final chunkDuration = (chunkEnd - chunkStart).clamp(0.5, 300.0);
     final elapsed = (pos - chunkStart).clamp(0.0, chunkDuration);
     final progress = elapsed / chunkDuration;
 
     final words = chunkText.split(' ').where((wd) => wd.isNotEmpty).toList();
     if (words.isEmpty) return const SizedBox.shrink();
 
-    const wordsPerLine = 4;
+    // Show 6 words at a time, cycling as progress advances
+    const wordsPerCaption = 6;
     final currentWordIdx = (progress * words.length).floor().clamp(0, words.length - 1);
-    final lineIdx = currentWordIdx ~/ wordsPerLine;
-    final lineStart = lineIdx * wordsPerLine;
-    final lineEnd = (lineStart + wordsPerLine).clamp(0, words.length);
+    final lineIdx = currentWordIdx ~/ wordsPerCaption;
+    final lineStart = lineIdx * wordsPerCaption;
+    final lineEnd = (lineStart + wordsPerCaption).clamp(0, words.length);
     final lineText = words.sublist(lineStart, lineEnd).join(' ');
 
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 180),
+      duration: const Duration(milliseconds: 200),
       child: Container(
-        key: ValueKey(lineIdx),
-        padding: EdgeInsets.symmetric(horizontal: w * 0.04, vertical: w * 0.02),
+        key: ValueKey('$activeIdx-$lineIdx'),
+        padding: EdgeInsets.symmetric(horizontal: w * 0.04, vertical: w * 0.018),
         decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.75),
+          color: Colors.black.withOpacity(0.78),
           borderRadius: BorderRadius.circular(w * 0.02),
         ),
         child: Text(
           lineText,
           textAlign: TextAlign.center,
-          style: GoogleFonts.lato(fontSize: w * 0.04, fontWeight: FontWeight.w500, color: Colors.white, height: 1.3),
-          maxLines: 1,
+          style: GoogleFonts.lato(fontSize: w * 0.038, fontWeight: FontWeight.w500, color: Colors.white, height: 1.3),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
         ),
       ),
     );
@@ -720,9 +776,9 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                   style: GoogleFonts.lato(fontSize: w * 0.03, color: AppColors.gray),
                 ),
 
-                SizedBox(height: h * 0.01),
+                SizedBox(height: h * 0.008),
 
-                // Action buttons
+                // Action buttons row
                 Row(
                   children: [
                     _infoActionBtn(
@@ -734,8 +790,10 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                     ),
                     _infoActionBtn(Icons.replay_10_rounded, '-10s', w, onTap: () => _seekRelative(-10)),
                     _infoActionBtn(Icons.forward_10_rounded, '+10s', w, onTap: () => _seekRelative(10)),
+                    _infoActionBtn(Icons.quiz_rounded, 'Quiz', w,
+                        color: _quizTriggered ? AppColors.orange : AppColors.gray,
+                        onTap: () => _tryTriggerQuiz(manual: true)),
                     const Spacer(),
-                    // Ask AIVA shortcut
                     GestureDetector(
                       onTap: () => _tabController.animateTo(0),
                       child: Container(
@@ -747,22 +805,81 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                         child: Row(mainAxisSize: MainAxisSize.min, children: [
                           Icon(Icons.auto_awesome_rounded, color: AppColors.primaryLime, size: w * 0.035),
                           SizedBox(width: w * 0.01),
-                          Text(
-                            'Ask AIVA',
-                            style: GoogleFonts.lato(fontSize: w * 0.028, fontWeight: FontWeight.w700, color: AppColors.primaryLime),
-                          ),
+                          Text('Ask AIVA', style: GoogleFonts.lato(fontSize: w * 0.028, fontWeight: FontWeight.w700, color: AppColors.primaryLime)),
                         ]),
                       ),
                     ),
                   ],
                 ),
+
+                // Chapters strip (if available)
+                if (_chapters.isNotEmpty) _buildInfoChapters(w, h),
               ],
             ),
           ),
 
-          SizedBox(height: h * 0.01),
           Divider(height: 1, color: AppColors.grayLight),
         ],
+      ),
+    );
+  }
+
+  Widget _buildInfoChapters(double w, double h) {
+    final activeIdx = _currentChapterIndex();
+    return SizedBox(
+      height: h * 0.045,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        padding: EdgeInsets.only(top: h * 0.008, bottom: h * 0.004),
+        itemCount: _chapters.length,
+        itemBuilder: (_, i) {
+          final ch = _chapters[i];
+          final title = ch['title']?.toString() ?? 'Chapter ${i + 1}';
+          final secs = _chapterSeconds(ch);
+          final label = ch['timestamp_label']?.toString()
+              ?? _formatDuration(Duration(seconds: secs.toInt()));
+          final isActive = i == activeIdx;
+          return GestureDetector(
+            onTap: () {
+              _controller?.seekTo(Duration(seconds: secs.toInt()));
+              _controller?.play();
+            },
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              margin: EdgeInsets.only(right: w * 0.02),
+              padding: EdgeInsets.symmetric(horizontal: w * 0.025, vertical: h * 0.004),
+              decoration: BoxDecoration(
+                color: isActive ? AppColors.primaryDark : AppColors.lightBg,
+                borderRadius: BorderRadius.circular(w * 0.04),
+                border: Border.all(color: isActive ? AppColors.primaryDark : AppColors.grayLight),
+              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(
+                  isActive ? Icons.play_arrow_rounded : Icons.skip_next_rounded,
+                  size: w * 0.03,
+                  color: isActive ? AppColors.primaryLime : AppColors.gray,
+                ),
+                SizedBox(width: w * 0.008),
+                Text(
+                  title,
+                  style: GoogleFonts.lato(
+                    fontSize: w * 0.026,
+                    fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+                    color: isActive ? AppColors.white : AppColors.primaryDark,
+                  ),
+                ),
+                SizedBox(width: w * 0.01),
+                Text(
+                  label,
+                  style: GoogleFonts.lato(
+                    fontSize: w * 0.024,
+                    color: isActive ? AppColors.primaryLime : AppColors.gray,
+                  ),
+                ),
+              ]),
+            ),
+          );
+        },
       ),
     );
   }
@@ -910,8 +1027,74 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     );
   }
 
+  /// Parses "MM:SS" or "H:MM:SS" timestamps from text and returns seconds.
+  int? _parseTimestamp(String ts) {
+    final parts = ts.split(':');
+    try {
+      if (parts.length == 2) {
+        return int.parse(parts[0]) * 60 + int.parse(parts[1]);
+      } else if (parts.length == 3) {
+        return int.parse(parts[0]) * 3600 + int.parse(parts[1]) * 60 + int.parse(parts[2]);
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Finds all timestamps like 1:23 or 01:23:45 in [text] and renders them
+  /// as tappable lime chips that seek the video.
+  Widget _buildTextWithTimestamps(String text, double w, {required bool isUser}) {
+    final timestampRegex = RegExp(r'\b(\d{1,2}:\d{2}(?::\d{2})?)\b');
+    final spans = <InlineSpan>[];
+    int last = 0;
+    final baseStyle = GoogleFonts.lato(
+      fontSize: w * 0.034,
+      color: isUser ? Colors.white : AppColors.primaryDark,
+      height: 1.55,
+    );
+
+    for (final match in timestampRegex.allMatches(text)) {
+      if (match.start > last) {
+        spans.add(TextSpan(text: text.substring(last, match.start), style: baseStyle));
+      }
+      final ts = match.group(0)!;
+      final secs = _parseTimestamp(ts);
+      spans.add(WidgetSpan(
+        alignment: PlaceholderAlignment.middle,
+        child: GestureDetector(
+          onTap: secs != null
+              ? () {
+                  _controller?.seekTo(Duration(seconds: secs));
+                  _controller?.play();
+                }
+              : null,
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 2),
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: AppColors.primaryLime,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              ts,
+              style: GoogleFonts.lato(fontSize: w * 0.03, fontWeight: FontWeight.w700, color: AppColors.primaryDark),
+            ),
+          ),
+        ),
+      ));
+      last = match.end;
+    }
+    if (last < text.length) {
+      spans.add(TextSpan(text: text.substring(last), style: baseStyle));
+    }
+
+    return RichText(text: TextSpan(children: spans));
+  }
+
   Widget _buildChatBubble(Map<String, dynamic> msg, double w, double h) {
     final isUser = msg['role'] == 'user';
+    final text = msg['text'] as String? ?? '';
+    final hasTimestamps = RegExp(r'\b\d{1,2}:\d{2}\b').hasMatch(text);
+
     return Padding(
       padding: EdgeInsets.only(bottom: h * 0.012),
       child: Row(
@@ -923,13 +1106,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
               width: w * 0.07,
               height: w * 0.07,
               margin: EdgeInsets.only(right: w * 0.02),
-              decoration: BoxDecoration(
-                color: AppColors.primaryDark,
-                shape: BoxShape.circle,
-              ),
-              child: Center(
-                child: Icon(Icons.auto_awesome_rounded, color: AppColors.primaryLime, size: w * 0.035),
-              ),
+              decoration: const BoxDecoration(color: AppColors.primaryDark, shape: BoxShape.circle),
+              child: Center(child: Icon(Icons.auto_awesome_rounded, color: AppColors.primaryLime, size: w * 0.035)),
             ),
           ],
           Flexible(
@@ -944,29 +1122,22 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                   bottomLeft: Radius.circular(isUser ? w * 0.045 : w * 0.006),
                   bottomRight: Radius.circular(isUser ? w * 0.006 : w * 0.045),
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.04),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
+                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 6, offset: const Offset(0, 2))],
               ),
               child: isUser
-                  ? Text(
-                      msg['text'] as String,
-                      style: GoogleFonts.lato(fontSize: w * 0.034, color: Colors.white, height: 1.5),
-                    )
-                  : MarkdownBody(
-                      data: msg['text'] as String,
-                      styleSheet: MarkdownStyleSheet(
-                        p: GoogleFonts.lato(fontSize: w * 0.034, color: AppColors.primaryDark, height: 1.55),
-                        strong: GoogleFonts.lato(fontSize: w * 0.034, color: AppColors.primaryDark, fontWeight: FontWeight.w700),
-                        h3: GoogleFonts.lato(fontSize: w * 0.036, color: AppColors.primaryDark, fontWeight: FontWeight.w700),
-                        listBullet: GoogleFonts.lato(fontSize: w * 0.034, color: AppColors.purple),
-                        code: GoogleFonts.sourceCodePro(fontSize: w * 0.029, backgroundColor: AppColors.white),
-                      ),
-                    ),
+                  ? Text(text, style: GoogleFonts.lato(fontSize: w * 0.034, color: Colors.white, height: 1.5))
+                  : hasTimestamps
+                      ? _buildTextWithTimestamps(text, w, isUser: false)
+                      : MarkdownBody(
+                          data: text,
+                          styleSheet: MarkdownStyleSheet(
+                            p: GoogleFonts.lato(fontSize: w * 0.034, color: AppColors.primaryDark, height: 1.55),
+                            strong: GoogleFonts.lato(fontSize: w * 0.034, color: AppColors.primaryDark, fontWeight: FontWeight.w700),
+                            h3: GoogleFonts.lato(fontSize: w * 0.036, color: AppColors.primaryDark, fontWeight: FontWeight.w700),
+                            listBullet: GoogleFonts.lato(fontSize: w * 0.034, color: AppColors.purple),
+                            code: GoogleFonts.sourceCodePro(fontSize: w * 0.029, backgroundColor: AppColors.white),
+                          ),
+                        ),
             ),
           ),
           if (isUser) SizedBox(width: w * 0.01),
@@ -1024,6 +1195,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
               ),
               child: TextField(
                 controller: _chatInput,
+                focusNode: _chatFocusNode,
                 style: GoogleFonts.lato(fontSize: w * 0.034, color: AppColors.primaryDark),
                 decoration: InputDecoration(
                   hintText: 'Ask about this lecture...',
@@ -1059,14 +1231,33 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     return raw.map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
   }
 
-  Map<String, dynamic>? _activeChunk() {
+  /// Returns the index of the last transcript chunk whose start_time ≤ current pos.
+  /// More robust than start+end range check — handles gaps between chunks.
+  int _findActiveChunkIndex() {
+    if (_transcript.isEmpty) return -1;
     final pos = _controller?.value.position.inSeconds.toDouble() ?? 0;
-    for (final chunk in _transcript) {
-      final start = (chunk['start_time'] as num?)?.toDouble() ?? 0;
-      final end = (chunk['end_time'] as num?)?.toDouble() ?? start + 30;
-      if (pos >= start && pos < end) return chunk;
+    int idx = -1;
+    for (int i = 0; i < _transcript.length; i++) {
+      final start = (_transcript[i]['start_time'] as num?)?.toDouble() ?? 0;
+      if (start <= pos) {
+        idx = i;
+      } else {
+        break;
+      }
     }
-    return null;
+    return idx;
+  }
+
+  Map<String, dynamic>? _activeChunk() {
+    final i = _findActiveChunkIndex();
+    return i >= 0 ? _transcript[i] : null;
+  }
+
+  /// Chapters use 'seconds' field (not 'start_time') from the backend.
+  double _chapterSeconds(Map<String, dynamic> ch) {
+    return (ch['seconds'] as num?)?.toDouble()
+        ?? (ch['start_time'] as num?)?.toDouble()
+        ?? 0;
   }
 
   int _currentChapterIndex() {
@@ -1074,8 +1265,8 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     final pos = _controller?.value.position.inSeconds.toDouble() ?? 0;
     int idx = 0;
     for (int i = 0; i < _chapters.length; i++) {
-      final chStart = (_chapters[i]['start_time'] as num?)?.toDouble() ?? 0;
-      if (pos >= chStart) idx = i;
+      if (_chapterSeconds(_chapters[i]) <= pos) idx = i;
+      else break;
     }
     return idx;
   }
@@ -1295,7 +1486,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     );
   }
 
-  // ── Chapters strip ────────────────────────────────────────────────────────
+  // ── Chapters strip (in Transcript tab) ───────────────────────────────────
 
   Widget _buildChaptersStrip(double w, double h) {
     final activeIdx = _currentChapterIndex();
@@ -1304,77 +1495,65 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: EdgeInsets.fromLTRB(w * 0.04, h * 0.012, w * 0.04, h * 0.006),
-          child: Text(
-            'Chapters',
-            style: GoogleFonts.lato(fontSize: w * 0.032, fontWeight: FontWeight.w700, color: AppColors.gray, letterSpacing: 0.5),
-          ),
+          padding: EdgeInsets.fromLTRB(w * 0.04, h * 0.01, w * 0.04, h * 0.005),
+          child: Text('Chapters', style: GoogleFonts.lato(fontSize: w * 0.03, fontWeight: FontWeight.w700, color: AppColors.gray)),
         ),
         SizedBox(
-          height: h * 0.052,
+          height: h * 0.05,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             padding: EdgeInsets.symmetric(horizontal: w * 0.04),
             itemCount: _chapters.length,
             itemBuilder: (_, i) {
               final chapter = _chapters[i];
-              final title = chapter['title']?.toString() ?? chapter['name']?.toString() ?? 'Chapter ${i + 1}';
-              final chStart = (chapter['start_time'] as num?)?.toDouble() ?? 0;
-              final startLabel = chapter['start_label']?.toString() ??
-                  _formatDuration(Duration(seconds: chStart.toInt()));
+              final title = chapter['title']?.toString() ?? 'Chapter ${i + 1}';
+              final chSecs = _chapterSeconds(chapter);
+              // 'timestamp_label' from backend; fallback to computed label
+              final label = chapter['timestamp_label']?.toString()
+                  ?? _formatDuration(Duration(seconds: chSecs.toInt()));
               final isActive = i == activeIdx;
 
               return GestureDetector(
                 onTap: () {
-                  _controller?.seekTo(Duration(seconds: chStart.toInt()));
+                  _controller?.seekTo(Duration(seconds: chSecs.toInt()));
                   _controller?.play();
                 },
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
                   margin: EdgeInsets.only(right: w * 0.025),
-                  padding: EdgeInsets.symmetric(horizontal: w * 0.035, vertical: h * 0.008),
+                  padding: EdgeInsets.symmetric(horizontal: w * 0.03, vertical: h * 0.006),
                   decoration: BoxDecoration(
                     color: isActive ? AppColors.primaryDark : AppColors.lightBg,
-                    borderRadius: BorderRadius.circular(w * 0.05),
-                    border: Border.all(
-                      color: isActive ? AppColors.primaryDark : AppColors.grayLight,
-                      width: 1.5,
-                    ),
-                    boxShadow: isActive
-                        ? [BoxShadow(color: AppColors.primaryDark.withOpacity(0.2), blurRadius: 8, offset: const Offset(0, 2))]
-                        : null,
+                    borderRadius: BorderRadius.circular(w * 0.04),
+                    border: Border.all(color: isActive ? AppColors.primaryDark : AppColors.grayLight),
                   ),
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
                     Icon(
                       isActive ? Icons.play_arrow_rounded : Icons.skip_next_rounded,
-                      size: w * 0.035,
+                      size: w * 0.032,
                       color: isActive ? AppColors.primaryLime : AppColors.gray,
                     ),
+                    SizedBox(width: w * 0.01),
+                    Text(title,
+                        style: GoogleFonts.lato(
+                          fontSize: w * 0.028,
+                          fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
+                          color: isActive ? AppColors.white : AppColors.primaryDark,
+                        )),
                     SizedBox(width: w * 0.012),
-                    Text(
-                      title,
-                      style: GoogleFonts.lato(
-                        fontSize: w * 0.03,
-                        fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
-                        color: isActive ? AppColors.white : AppColors.primaryDark,
-                      ),
-                    ),
-                    SizedBox(width: w * 0.015),
-                    Text(
-                      startLabel,
-                      style: GoogleFonts.lato(
-                        fontSize: w * 0.026,
-                        color: isActive ? AppColors.primaryLime : AppColors.gray,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+                    Text(label,
+                        style: GoogleFonts.lato(
+                          fontSize: w * 0.025,
+                          color: isActive ? AppColors.primaryLime : AppColors.gray,
+                          fontWeight: FontWeight.w600,
+                        )),
                   ]),
                 ),
               );
             },
           ),
         ),
-        SizedBox(height: h * 0.008),
+        SizedBox(height: h * 0.006),
       ],
     );
   }
@@ -1402,117 +1581,163 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       );
     }
 
-    return SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(w * 0.04, h * 0.018, w * 0.04, h * 0.05),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header row
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(children: [
-                Container(
-                  padding: EdgeInsets.all(w * 0.018),
-                  decoration: BoxDecoration(color: AppColors.primaryDark, borderRadius: BorderRadius.circular(w * 0.02)),
-                  child: Icon(Icons.note_alt_rounded, color: AppColors.primaryLime, size: w * 0.038),
+    return ListView(
+      // ListView gives us vertical-only scrolling and proper width constraints
+      physics: const ClampingScrollPhysics(),
+      padding: EdgeInsets.fromLTRB(w * 0.04, h * 0.016, w * 0.04, h * 0.05),
+      children: [
+        // ── Header ────────────────────────────────────────────────────────
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(children: [
+              Container(
+                padding: EdgeInsets.all(w * 0.018),
+                decoration: BoxDecoration(
+                  color: AppColors.primaryDark,
+                  borderRadius: BorderRadius.circular(w * 0.02),
                 ),
-                SizedBox(width: w * 0.02),
-                Text('My Notes', style: GoogleFonts.lato(fontSize: w * 0.042, fontWeight: FontWeight.w800, color: AppColors.primaryDark)),
-              ]),
-              // Refresh button
-              GestureDetector(
-                onTap: () {
-                  setState(() => _notesLoading = true);
-                  _loadNotes();
-                },
-                child: Container(
-                  padding: EdgeInsets.symmetric(horizontal: w * 0.03, vertical: h * 0.007),
-                  decoration: BoxDecoration(
-                    color: AppColors.lightBg,
-                    borderRadius: BorderRadius.circular(w * 0.03),
-                    border: Border.all(color: AppColors.grayLight),
-                  ),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.refresh_rounded, size: w * 0.035, color: AppColors.gray),
-                    SizedBox(width: w * 0.01),
-                    Text('Refresh', style: GoogleFonts.lato(fontSize: w * 0.028, color: AppColors.gray)),
-                  ]),
-                ),
+                child: Icon(Icons.note_alt_rounded, color: AppColors.primaryLime, size: w * 0.038),
               ),
-            ],
-          ),
-
-          SizedBox(height: h * 0.012),
-
-          if (_notesContent == null || _notesContent!.isEmpty) ...[
-            SizedBox(height: h * 0.04),
-            Center(
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                Container(
-                  padding: EdgeInsets.all(w * 0.05),
-                  decoration: BoxDecoration(color: AppColors.lightBg, shape: BoxShape.circle),
-                  child: Icon(Icons.chat_bubble_outline_rounded, size: w * 0.12, color: AppColors.gray),
-                ),
-                SizedBox(height: h * 0.02),
-                Text('No notes yet', style: GoogleFonts.lato(fontSize: w * 0.042, fontWeight: FontWeight.w700, color: AppColors.primaryDark)),
-                SizedBox(height: h * 0.008),
-                Text(
-                  'Ask AIVA questions while watching.\nYour notes are generated from your Q&A.',
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.lato(fontSize: w * 0.033, color: AppColors.gray, height: 1.5),
-                ),
-                SizedBox(height: h * 0.025),
-                GestureDetector(
-                  onTap: () => _tabController.animateTo(0),
-                  child: Container(
-                    padding: EdgeInsets.symmetric(horizontal: w * 0.06, vertical: h * 0.014),
-                    decoration: BoxDecoration(color: AppColors.primaryDark, borderRadius: BorderRadius.circular(w * 0.035)),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      Icon(Icons.auto_awesome_rounded, color: AppColors.primaryLime, size: w * 0.04),
-                      SizedBox(width: w * 0.015),
-                      Text('Ask AIVA', style: GoogleFonts.lato(fontSize: w * 0.036, fontWeight: FontWeight.w700, color: AppColors.primaryLime)),
-                    ]),
-                  ),
-                ),
-              ]),
-            ),
-          ] else ...[
-            Container(
-              padding: EdgeInsets.symmetric(horizontal: w * 0.03, vertical: h * 0.007),
-              decoration: BoxDecoration(
-                color: AppColors.primaryLime.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(w * 0.02),
-              ),
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                Icon(Icons.auto_awesome_rounded, color: AppColors.primaryDark, size: w * 0.03),
-                SizedBox(width: w * 0.01),
-                Text('Generated from your questions', style: GoogleFonts.lato(fontSize: w * 0.028, color: AppColors.primaryDark, fontWeight: FontWeight.w600)),
-              ]),
-            ),
-            SizedBox(height: h * 0.015),
-            MarkdownBody(
-              data: _notesContent!,
-              selectable: true,
-              styleSheet: MarkdownStyleSheet(
-                p: GoogleFonts.lato(fontSize: w * 0.036, color: AppColors.primaryDark, height: 1.7),
-                h1: GoogleFonts.lato(fontSize: w * 0.048, fontWeight: FontWeight.w800, color: AppColors.primaryDark),
-                h2: GoogleFonts.lato(fontSize: w * 0.042, fontWeight: FontWeight.w700, color: AppColors.primaryDark),
-                h3: GoogleFonts.lato(fontSize: w * 0.038, fontWeight: FontWeight.w600, color: AppColors.purple),
-                strong: GoogleFonts.lato(fontSize: w * 0.036, fontWeight: FontWeight.w700, color: AppColors.primaryDark),
-                em: GoogleFonts.lato(fontSize: w * 0.036, fontStyle: FontStyle.italic, color: AppColors.gray),
-                listBullet: GoogleFonts.lato(fontSize: w * 0.036, color: AppColors.purple),
-                blockquote: GoogleFonts.lato(fontSize: w * 0.034, color: AppColors.gray, fontStyle: FontStyle.italic),
-                blockquoteDecoration: BoxDecoration(
+              SizedBox(width: w * 0.02),
+              Text('My Notes',
+                  style: GoogleFonts.lato(fontSize: w * 0.042, fontWeight: FontWeight.w800, color: AppColors.primaryDark)),
+            ]),
+            GestureDetector(
+              onTap: () {
+                setState(() => _notesLoading = true);
+                _loadNotes();
+              },
+              child: Container(
+                padding: EdgeInsets.symmetric(horizontal: w * 0.03, vertical: h * 0.007),
+                decoration: BoxDecoration(
                   color: AppColors.lightBg,
-                  border: const Border(left: BorderSide(color: AppColors.primaryDark, width: 3)),
+                  borderRadius: BorderRadius.circular(w * 0.03),
+                  border: Border.all(color: AppColors.grayLight),
                 ),
-                code: GoogleFonts.sourceCodePro(fontSize: w * 0.03, color: AppColors.primaryDark, backgroundColor: AppColors.lightBg),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.refresh_rounded, size: w * 0.035, color: AppColors.gray),
+                  SizedBox(width: w * 0.01),
+                  Text('Refresh', style: GoogleFonts.lato(fontSize: w * 0.028, color: AppColors.gray)),
+                ]),
               ),
             ),
           ],
+        ),
+
+        SizedBox(height: h * 0.014),
+
+        // ── Empty state ───────────────────────────────────────────────────
+        if (_notesContent == null || _notesContent!.isEmpty) ...[
+          SizedBox(height: h * 0.04),
+          Center(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Container(
+                padding: EdgeInsets.all(w * 0.05),
+                decoration: const BoxDecoration(color: AppColors.lightBg, shape: BoxShape.circle),
+                child: Icon(Icons.chat_bubble_outline_rounded, size: w * 0.12, color: AppColors.gray),
+              ),
+              SizedBox(height: h * 0.02),
+              Text('No notes yet',
+                  style: GoogleFonts.lato(fontSize: w * 0.042, fontWeight: FontWeight.w700, color: AppColors.primaryDark)),
+              SizedBox(height: h * 0.008),
+              Text(
+                'Ask AIVA questions while watching.\nNotes are generated from your Q&A.',
+                textAlign: TextAlign.center,
+                style: GoogleFonts.lato(fontSize: w * 0.033, color: AppColors.gray, height: 1.5),
+              ),
+              SizedBox(height: h * 0.025),
+              GestureDetector(
+                onTap: () => _tabController.animateTo(0),
+                child: Container(
+                  padding: EdgeInsets.symmetric(horizontal: w * 0.06, vertical: h * 0.014),
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryDark,
+                    borderRadius: BorderRadius.circular(w * 0.035),
+                  ),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.auto_awesome_rounded, color: AppColors.primaryLime, size: w * 0.04),
+                    SizedBox(width: w * 0.015),
+                    Text('Ask AIVA',
+                        style: GoogleFonts.lato(fontSize: w * 0.036, fontWeight: FontWeight.w700, color: AppColors.primaryLime)),
+                  ]),
+                ),
+              ),
+            ]),
+          ),
+        ] else ...[
+          // ── "Generated from your questions" badge ─────────────────────
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: w * 0.03, vertical: h * 0.007),
+            decoration: BoxDecoration(
+              color: AppColors.primaryLime.withOpacity(0.12),
+              borderRadius: BorderRadius.circular(w * 0.02),
+            ),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(Icons.auto_awesome_rounded, color: AppColors.primaryDark, size: w * 0.03),
+              SizedBox(width: w * 0.01),
+              Text('Generated from your questions',
+                  style: GoogleFonts.lato(fontSize: w * 0.028, color: AppColors.primaryDark, fontWeight: FontWeight.w600)),
+            ]),
+          ),
+
+          SizedBox(height: h * 0.016),
+
+          // ── Markdown notes ────────────────────────────────────────────
+          // Constrain to screen width to prevent any horizontal overflow.
+          SizedBox(
+            width: double.infinity,
+            child: MarkdownBody(
+              data: _notesContent!,
+              shrinkWrap: true,
+              softLineBreak: true,
+              styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+                // Paragraphs
+                p: GoogleFonts.lato(fontSize: w * 0.036, color: AppColors.primaryDark, height: 1.72),
+                pPadding: EdgeInsets.only(bottom: h * 0.01),
+                // Headings
+                h1: GoogleFonts.lato(fontSize: w * 0.05, fontWeight: FontWeight.w800, color: AppColors.primaryDark),
+                h1Padding: EdgeInsets.only(top: h * 0.018, bottom: h * 0.008),
+                h2: GoogleFonts.lato(fontSize: w * 0.044, fontWeight: FontWeight.w700, color: AppColors.primaryDark),
+                h2Padding: EdgeInsets.only(top: h * 0.014, bottom: h * 0.006),
+                h3: GoogleFonts.lato(fontSize: w * 0.04, fontWeight: FontWeight.w600, color: AppColors.purple),
+                h3Padding: EdgeInsets.only(top: h * 0.012, bottom: h * 0.005),
+                // Inline
+                strong: GoogleFonts.lato(fontSize: w * 0.036, fontWeight: FontWeight.w700, color: AppColors.primaryDark),
+                em: GoogleFonts.lato(fontSize: w * 0.036, fontStyle: FontStyle.italic, color: AppColors.grayDark),
+                // Lists
+                listBullet: GoogleFonts.lato(fontSize: w * 0.036, color: AppColors.purple),
+                listIndent: w * 0.04,
+                listBulletPadding: EdgeInsets.only(right: w * 0.02),
+                // Block quote — left-border style, no horizontal overflow
+                blockquote: GoogleFonts.lato(
+                    fontSize: w * 0.034, color: AppColors.gray, fontStyle: FontStyle.italic, height: 1.6),
+                blockquoteDecoration: BoxDecoration(
+                  color: AppColors.lightBg,
+                  border: const Border(left: BorderSide(color: AppColors.primaryLime, width: 3)),
+                ),
+                blockquotePadding: EdgeInsets.fromLTRB(w * 0.04, h * 0.008, w * 0.02, h * 0.008),
+                // Inline code
+                code: GoogleFonts.sourceCodePro(
+                    fontSize: w * 0.031,
+                    color: AppColors.primaryDark,
+                    backgroundColor: AppColors.lightBg),
+                // Code block — constrained width, wraps text, no x-scroll
+                codeblockDecoration: BoxDecoration(
+                  color: AppColors.lightBg,
+                  borderRadius: BorderRadius.circular(w * 0.025),
+                  border: Border.all(color: AppColors.grayLight),
+                ),
+                codeblockPadding: EdgeInsets.all(w * 0.04),
+                // Horizontal rule
+                horizontalRuleDecoration: BoxDecoration(
+                  border: Border(top: BorderSide(color: AppColors.grayLight, width: 1)),
+                ),
+              ),
+            ),
+          ),
         ],
-      ),
+      ],
     );
   }
 
