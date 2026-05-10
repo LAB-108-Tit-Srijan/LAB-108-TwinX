@@ -1381,7 +1381,9 @@ class _ProgressScreenState extends State<ProgressScreen> with SingleTickerProvid
   }
 
   Widget _buildQuizView(double dvpw, double dvph) {
-    final questions = (_activeQuiz?['questions'] as List<dynamic>?) ?? [];
+    // Backend returns { success, quiz: { questions: [...] } }
+    final quiz = _activeQuiz?['quiz'] as Map<String, dynamic>?;
+    final questions = (quiz?['questions'] as List<dynamic>?) ?? [];
     if (questions.isEmpty) {
       return Center(
         child: Column(
@@ -2086,7 +2088,9 @@ class _QuizRunnerState extends State<_QuizRunner> {
   Map<String, dynamic>? _result;
   bool _submitting = false;
 
-  List<dynamic> get _questions => (widget.quiz['questions'] as List<dynamic>?) ?? [];
+  // Backend returns { success, quiz: { questions: [...] } }
+  List<dynamic> get _questions =>
+      ((widget.quiz['quiz'] as Map<String, dynamic>?)?['questions'] as List<dynamic>?) ?? [];
 
   Future<void> _submit() async {
     setState(() => _submitting = true);

@@ -431,16 +431,24 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       );
     }
 
+    // When the keyboard is open AND the user is on the AIVA chat tab,
+    // collapse the video + info panel so the chat fills the whole screen.
+    // resizeToAvoidBottomInset:true (default) then shrinks the Scaffold body
+    // by the keyboard height, and the chat column fits perfectly.
+    final keyboardOpen = MediaQuery.of(context).viewInsets.bottom > 50;
+    final onChatTab = _tabController.index == 0;
+    final chatFocused = keyboardOpen && onChatTab;
+
     return Scaffold(
       backgroundColor: AppColors.white,
       body: SafeArea(
         child: Column(
           children: [
-            _buildVideoSection(w, h),
+            if (!chatFocused) _buildVideoSection(w, h),
             Expanded(
               child: Column(
                 children: [
-                  _buildInfoPanel(w, h),
+                  if (!chatFocused) _buildInfoPanel(w, h),
                   _buildTabBar(w, h),
                   Expanded(
                     child: TabBarView(
@@ -1027,73 +1035,70 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
     );
   }
 
-  /// Parses "MM:SS" or "H:MM:SS" timestamps from text and returns seconds.
-  int? _parseTimestamp(String ts) {
-    final parts = ts.split(':');
-    try {
-      if (parts.length == 2) {
-        return int.parse(parts[0]) * 60 + int.parse(parts[1]);
-      } else if (parts.length == 3) {
-        return int.parse(parts[0]) * 3600 + int.parse(parts[1]) * 60 + int.parse(parts[2]);
-      }
-    } catch (_) {}
-    return null;
-  }
-
-  /// Finds all timestamps like 1:23 or 01:23:45 in [text] and renders them
-  /// as tappable lime chips that seek the video.
-  Widget _buildTextWithTimestamps(String text, double w, {required bool isUser}) {
-    final timestampRegex = RegExp(r'\b(\d{1,2}:\d{2}(?::\d{2})?)\b');
-    final spans = <InlineSpan>[];
-    int last = 0;
-    final baseStyle = GoogleFonts.lato(
-      fontSize: w * 0.034,
-      color: isUser ? Colors.white : AppColors.primaryDark,
-      height: 1.55,
+  /// Converts timestamps like "2:30" → "[2:30](#t=150)" so MarkdownBody
+  /// renders them as tappable links while keeping full markdown formatting.
+  String _injectTimestampLinks(String text) {
+    return text.replaceAllMapped(
+      RegExp(r'\b(\d{1,2}:\d{2}(?::\d{2})?)\b'),
+      (m) {
+        final ts = m.group(0)!;
+        final parts = ts.split(':');
+        int secs = 0;
+        try {
+          if (parts.length == 2) {
+            secs = int.parse(parts[0]) * 60 + int.parse(parts[1]);
+          } else if (parts.length == 3) {
+            secs = int.parse(parts[0]) * 3600 + int.parse(parts[1]) * 60 + int.parse(parts[2]);
+          }
+        } catch (_) {}
+        return '[$ts](#t=$secs)';
+      },
     );
-
-    for (final match in timestampRegex.allMatches(text)) {
-      if (match.start > last) {
-        spans.add(TextSpan(text: text.substring(last, match.start), style: baseStyle));
-      }
-      final ts = match.group(0)!;
-      final secs = _parseTimestamp(ts);
-      spans.add(WidgetSpan(
-        alignment: PlaceholderAlignment.middle,
-        child: GestureDetector(
-          onTap: secs != null
-              ? () {
-                  _controller?.seekTo(Duration(seconds: secs));
-                  _controller?.play();
-                }
-              : null,
-          child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 2),
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            decoration: BoxDecoration(
-              color: AppColors.primaryLime,
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: Text(
-              ts,
-              style: GoogleFonts.lato(fontSize: w * 0.03, fontWeight: FontWeight.w700, color: AppColors.primaryDark),
-            ),
-          ),
-        ),
-      ));
-      last = match.end;
-    }
-    if (last < text.length) {
-      spans.add(TextSpan(text: text.substring(last), style: baseStyle));
-    }
-
-    return RichText(text: TextSpan(children: spans));
   }
+
+  MarkdownStyleSheet _aivaChatStyle(double w) => MarkdownStyleSheet(
+        // Paragraphs
+        p: GoogleFonts.lato(fontSize: w * 0.034, color: AppColors.primaryDark, height: 1.6),
+        pPadding: const EdgeInsets.only(bottom: 4),
+        // Headings
+        h1: GoogleFonts.lato(fontSize: w * 0.044, fontWeight: FontWeight.w800, color: AppColors.primaryDark),
+        h2: GoogleFonts.lato(fontSize: w * 0.04, fontWeight: FontWeight.w700, color: AppColors.primaryDark),
+        h3: GoogleFonts.lato(fontSize: w * 0.037, fontWeight: FontWeight.w600, color: AppColors.purple),
+        h4: GoogleFonts.lato(fontSize: w * 0.035, fontWeight: FontWeight.w600, color: AppColors.primaryDark),
+        // Inline formatting
+        strong: GoogleFonts.lato(fontSize: w * 0.034, fontWeight: FontWeight.w700, color: AppColors.primaryDark),
+        em: GoogleFonts.lato(fontSize: w * 0.034, fontStyle: FontStyle.italic, color: AppColors.grayDark),
+        del: GoogleFonts.lato(fontSize: w * 0.034, color: AppColors.gray, decoration: TextDecoration.lineThrough),
+        // Links — timestamps become lime-coloured links
+        a: GoogleFonts.lato(fontSize: w * 0.034, color: AppColors.primaryLime, fontWeight: FontWeight.w700, decoration: TextDecoration.none),
+        // Lists
+        listBullet: GoogleFonts.lato(fontSize: w * 0.034, color: AppColors.purple, height: 1.6),
+        listIndent: w * 0.04,
+        listBulletPadding: EdgeInsets.only(right: w * 0.015),
+        // Block quote
+        blockquote: GoogleFonts.lato(fontSize: w * 0.033, color: AppColors.gray, fontStyle: FontStyle.italic, height: 1.55),
+        blockquoteDecoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.04),
+          border: const Border(left: BorderSide(color: AppColors.primaryLime, width: 3)),
+        ),
+        blockquotePadding: EdgeInsets.fromLTRB(w * 0.03, 4, w * 0.02, 4),
+        // Code
+        code: GoogleFonts.sourceCodePro(
+          fontSize: w * 0.03,
+          color: AppColors.purple,
+          backgroundColor: Colors.black.withOpacity(0.06),
+        ),
+        codeblockDecoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        codeblockPadding: EdgeInsets.all(w * 0.035),
+        textScaleFactor: 1.0,
+      );
 
   Widget _buildChatBubble(Map<String, dynamic> msg, double w, double h) {
     final isUser = msg['role'] == 'user';
     final text = msg['text'] as String? ?? '';
-    final hasTimestamps = RegExp(r'\b\d{1,2}:\d{2}\b').hasMatch(text);
 
     return Padding(
       padding: EdgeInsets.only(bottom: h * 0.012),
@@ -1112,7 +1117,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
           ],
           Flexible(
             child: Container(
-              constraints: BoxConstraints(maxWidth: w * 0.75),
+              constraints: BoxConstraints(maxWidth: w * 0.8),
               padding: EdgeInsets.symmetric(horizontal: w * 0.04, vertical: h * 0.012),
               decoration: BoxDecoration(
                 color: isUser ? AppColors.primaryDark : AppColors.lightBg,
@@ -1126,18 +1131,23 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
               ),
               child: isUser
                   ? Text(text, style: GoogleFonts.lato(fontSize: w * 0.034, color: Colors.white, height: 1.5))
-                  : hasTimestamps
-                      ? _buildTextWithTimestamps(text, w, isUser: false)
-                      : MarkdownBody(
-                          data: text,
-                          styleSheet: MarkdownStyleSheet(
-                            p: GoogleFonts.lato(fontSize: w * 0.034, color: AppColors.primaryDark, height: 1.55),
-                            strong: GoogleFonts.lato(fontSize: w * 0.034, color: AppColors.primaryDark, fontWeight: FontWeight.w700),
-                            h3: GoogleFonts.lato(fontSize: w * 0.036, color: AppColors.primaryDark, fontWeight: FontWeight.w700),
-                            listBullet: GoogleFonts.lato(fontSize: w * 0.034, color: AppColors.purple),
-                            code: GoogleFonts.sourceCodePro(fontSize: w * 0.029, backgroundColor: AppColors.white),
-                          ),
-                        ),
+                  : MarkdownBody(
+                      // Inject timestamp links so they're tappable within
+                      // the fully-formatted markdown response.
+                      data: _injectTimestampLinks(
+                        text.replaceAll('\r\n', '\n').trim(),
+                      ),
+                      softLineBreak: true,
+                      styleSheet: _aivaChatStyle(w),
+                      onTapLink: (linkText, href, title) {
+                        // "#t=<seconds>" href → seek video
+                        if (href != null && href.startsWith('#t=')) {
+                          final secs = int.tryParse(href.substring(3)) ?? 0;
+                          _controller?.seekTo(Duration(seconds: secs));
+                          _controller?.play();
+                        }
+                      },
+                    ),
             ),
           ),
           if (isUser) SizedBox(width: w * 0.01),
@@ -1177,36 +1187,41 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
 
   Widget _buildChatInput(double w, double h) {
     return Container(
-      padding: EdgeInsets.fromLTRB(w * 0.04, h * 0.01, w * 0.03, h * 0.012),
+      padding: EdgeInsets.fromLTRB(w * 0.04, h * 0.012, w * 0.03, h * 0.012),
       decoration: BoxDecoration(
         color: AppColors.white,
         border: Border(top: BorderSide(color: AppColors.grayLight)),
         boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8, offset: const Offset(0, -2))],
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Expanded(
             child: Container(
-              padding: EdgeInsets.symmetric(horizontal: w * 0.04, vertical: h * 0.01),
+              constraints: BoxConstraints(minHeight: h * 0.052),
+              padding: EdgeInsets.symmetric(horizontal: w * 0.04, vertical: h * 0.013),
               decoration: BoxDecoration(
                 color: AppColors.lightBg,
-                borderRadius: BorderRadius.circular(w * 0.06),
+                borderRadius: BorderRadius.circular(w * 0.05),
                 border: Border.all(color: AppColors.grayLight),
               ),
               child: TextField(
                 controller: _chatInput,
                 focusNode: _chatFocusNode,
-                style: GoogleFonts.lato(fontSize: w * 0.034, color: AppColors.primaryDark),
+                style: GoogleFonts.lato(fontSize: w * 0.036, color: AppColors.primaryDark, height: 1.4),
                 decoration: InputDecoration(
                   hintText: 'Ask about this lecture...',
-                  hintStyle: GoogleFonts.lato(fontSize: w * 0.034, color: AppColors.gray),
+                  hintStyle: GoogleFonts.lato(fontSize: w * 0.036, color: AppColors.gray),
                   border: InputBorder.none,
+                  enabledBorder: InputBorder.none,
+                  focusedBorder: InputBorder.none,
+                  isDense: true,
                   contentPadding: EdgeInsets.zero,
-                  isCollapsed: true,
                 ),
                 textInputAction: TextInputAction.send,
                 onSubmitted: (_) => _sendMessage(),
-                maxLines: null,
+                maxLines: 4,
+                minLines: 1,
               ),
             ),
           ),
@@ -1214,9 +1229,10 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
           GestureDetector(
             onTap: () => _sendMessage(),
             child: Container(
-              padding: EdgeInsets.all(w * 0.032),
+              width: w * 0.115,
+              height: w * 0.115,
               decoration: const BoxDecoration(color: AppColors.primaryDark, shape: BoxShape.circle),
-              child: Icon(Icons.send_rounded, color: AppColors.primaryLime, size: w * 0.042),
+              child: Center(child: Icon(Icons.send_rounded, color: AppColors.primaryLime, size: w * 0.045)),
             ),
           ),
         ],
@@ -1225,11 +1241,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
   }
 
   // ─── Transcript Tab ───────────────────────────────────────────────────────
-
-  List<String> _splitSentences(String text) {
-    final raw = text.split(RegExp(r'(?<=[.!?])\s+'));
-    return raw.map((s) => s.trim()).where((s) => s.isNotEmpty).toList();
-  }
 
   /// Returns the index of the last transcript chunk whose start_time ≤ current pos.
   /// More robust than start+end range check — handles gaps between chunks.
@@ -1246,11 +1257,6 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       }
     }
     return idx;
-  }
-
-  Map<String, dynamic>? _activeChunk() {
-    final i = _findActiveChunkIndex();
-    return i >= 0 ? _transcript[i] : null;
   }
 
   /// Chapters use 'seconds' field (not 'start_time') from the backend.
@@ -1287,35 +1293,30 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
       );
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // ── "Now Speaking" card ───────────────────────────────────────────
-        _buildNowSpeakingCard(w, h),
+    // Everything in one CustomScrollView — chapters + all chunks.
+    // Past chunks stay visible above the current; auto-scroll keeps current in view.
+    // No overflow possible because there's no fixed-height outer column.
+    return CustomScrollView(
+      controller: _transcriptScrollController,
+      physics: const ClampingScrollPhysics(),
+      slivers: [
+        // Chapters strip (if generated)
+        if (_chapters.isNotEmpty)
+          SliverToBoxAdapter(child: _buildChaptersStrip(w, h)),
 
-        // ── Chapters strip ────────────────────────────────────────────────
-        if (_chapters.isNotEmpty) _buildChaptersStrip(w, h),
+        // Compact "Now Playing" bar (fixed height, never overflows)
+        SliverToBoxAdapter(child: _buildNowPlayingBar(w, h)),
 
-        // ── Full transcript list ──────────────────────────────────────────
-        Padding(
-          padding: EdgeInsets.fromLTRB(w * 0.04, h * 0.012, w * 0.04, h * 0.005),
-          child: Text(
-            'Full Transcript',
-            style: GoogleFonts.lato(fontSize: w * 0.032, fontWeight: FontWeight.w700, color: AppColors.gray, letterSpacing: 0.5),
-          ),
-        ),
-        Expanded(
-          child: ListView.builder(
-            controller: _transcriptScrollController,
-            padding: EdgeInsets.only(bottom: h * 0.02),
-            itemCount: _transcript.length,
-            itemBuilder: (_, i) {
+        // All transcript chunks — past chunks are above the current
+        SliverList(
+          delegate: SliverChildBuilderDelegate(
+            (_, i) {
               final chunk = _transcript[i];
               final start = (chunk['start_time'] as num?)?.toDouble() ?? 0;
-              final end = (chunk['end_time'] as num?)?.toDouble() ?? start + 30;
               final text = chunk['text'] as String? ?? '';
-              final currentPos = _controller?.value.position.inSeconds.toDouble() ?? 0;
-              final isActive = currentPos >= start && currentPos < end;
+              final activeIdx = _findActiveChunkIndex();
+              final isActive = i == activeIdx;
+              final isPast = i < activeIdx;
               final label = chunk['timestamp_label'] as String? ??
                   _formatDuration(Duration(seconds: start.toInt()));
 
@@ -1323,18 +1324,26 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                 onTap: () {
                   _controller?.seekTo(Duration(seconds: start.toInt()));
                   _controller?.play();
+                  // Resume auto-scroll when user taps
+                  setState(() => _autoScrollTranscript = true);
                 },
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 200),
-                  color: isActive ? AppColors.primaryLime.withOpacity(0.08) : Colors.transparent,
-                  padding: EdgeInsets.symmetric(horizontal: w * 0.04, vertical: h * 0.011),
+                  color: isActive
+                      ? AppColors.primaryLime.withOpacity(0.1)
+                      : Colors.transparent,
+                  padding: EdgeInsets.symmetric(horizontal: w * 0.04, vertical: h * 0.012),
                   child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    // Timestamp pill
+                    // Timestamp
                     Container(
                       width: w * 0.13,
                       padding: EdgeInsets.symmetric(horizontal: w * 0.012, vertical: h * 0.004),
                       decoration: BoxDecoration(
-                        color: isActive ? AppColors.primaryDark : AppColors.lightBg,
+                        color: isActive
+                            ? AppColors.primaryDark
+                            : isPast
+                                ? AppColors.lightBg
+                                : Colors.transparent,
                         borderRadius: BorderRadius.circular(w * 0.02),
                       ),
                       child: Text(
@@ -1342,7 +1351,11 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                         textAlign: TextAlign.center,
                         style: GoogleFonts.lato(
                           fontSize: w * 0.025,
-                          color: isActive ? AppColors.primaryLime : AppColors.gray,
+                          color: isActive
+                              ? AppColors.primaryLime
+                              : isPast
+                                  ? AppColors.gray
+                                  : AppColors.grayLight,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
@@ -1352,137 +1365,79 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
                       child: Text(
                         text,
                         style: GoogleFonts.lato(
-                          fontSize: w * 0.033,
-                          color: isActive ? AppColors.primaryDark : AppColors.grayDark,
-                          height: 1.5,
+                          fontSize: w * 0.034,
+                          color: isActive
+                              ? AppColors.primaryDark
+                              : isPast
+                                  ? AppColors.grayDark
+                                  : AppColors.gray,
+                          height: 1.55,
                           fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
                         ),
                       ),
                     ),
                     if (isActive)
                       Padding(
-                        padding: EdgeInsets.only(left: w * 0.02),
+                        padding: EdgeInsets.only(top: h * 0.006, left: w * 0.02),
                         child: Container(
-                          width: w * 0.015,
-                          height: w * 0.015,
-                          decoration: const BoxDecoration(color: AppColors.primaryLime, shape: BoxShape.circle),
+                          width: w * 0.018,
+                          height: w * 0.018,
+                          decoration: const BoxDecoration(
+                              color: AppColors.primaryLime, shape: BoxShape.circle),
                         ),
                       ),
                   ]),
                 ),
               );
             },
+            childCount: _transcript.length,
           ),
         ),
+
+        SliverPadding(padding: EdgeInsets.only(bottom: h * 0.03)),
       ],
     );
   }
 
-  // ── Now Speaking card with sentence-by-sentence reveal ────────────────────
+  /// Compact single-line bar showing what's currently playing — no overflow risk.
+  Widget _buildNowPlayingBar(double w, double h) {
+    final activeIdx = _findActiveChunkIndex();
+    if (activeIdx < 0) return const SizedBox.shrink();
 
-  Widget _buildNowSpeakingCard(double w, double h) {
-    final chunk = _activeChunk();
-    if (chunk == null) {
-      return Container(
-        margin: EdgeInsets.fromLTRB(w * 0.04, h * 0.012, w * 0.04, h * 0.004),
-        padding: EdgeInsets.all(w * 0.04),
-        decoration: BoxDecoration(
-          color: AppColors.primaryDark,
-          borderRadius: BorderRadius.circular(w * 0.04),
-        ),
-        child: Row(children: [
-          Container(width: w * 0.018, height: w * 0.018, decoration: BoxDecoration(color: Colors.white24, shape: BoxShape.circle)),
-          SizedBox(width: w * 0.025),
-          Text('Not speaking — tap any line below to jump', style: GoogleFonts.lato(fontSize: w * 0.03, color: Colors.white38)),
-        ]),
-      );
-    }
-
-    final text = chunk['text'] as String? ?? '';
-    final chunkStart = (chunk['start_time'] as num?)?.toDouble() ?? 0;
-    final chunkEnd = (chunk['end_time'] as num?)?.toDouble() ?? chunkStart + 30;
-    final chunkDuration = (chunkEnd - chunkStart).clamp(0.5, 300.0);
-    final currentPos = _controller?.value.position.inSeconds.toDouble() ?? 0;
-    final elapsed = (currentPos - chunkStart).clamp(0.0, chunkDuration);
-    final progress = elapsed / chunkDuration;
-
-    final sentences = _splitSentences(text);
-    // Reveal sentences progressively as time moves through the chunk
-    final visibleCount = sentences.isEmpty
-        ? 0
-        : (progress * sentences.length).ceil().clamp(1, sentences.length);
+    final chunk = _transcript[activeIdx];
     final label = chunk['timestamp_label'] as String? ??
-        _formatDuration(Duration(seconds: chunkStart.toInt()));
+        _formatDuration(Duration(seconds:
+            ((chunk['start_time'] as num?)?.toInt() ?? 0)));
 
     return Container(
-      margin: EdgeInsets.fromLTRB(w * 0.04, h * 0.012, w * 0.04, h * 0.004),
-      padding: EdgeInsets.all(w * 0.04),
+      margin: EdgeInsets.fromLTRB(w * 0.04, h * 0.008, w * 0.04, h * 0.004),
+      padding: EdgeInsets.symmetric(horizontal: w * 0.035, vertical: h * 0.009),
       decoration: BoxDecoration(
         color: AppColors.primaryDark,
-        borderRadius: BorderRadius.circular(w * 0.04),
-        boxShadow: [BoxShadow(color: AppColors.primaryDark.withOpacity(0.3), blurRadius: 12, offset: const Offset(0, 4))],
+        borderRadius: BorderRadius.circular(w * 0.03),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header row
-          Row(children: [
-            // Pulsing dot
-            Container(
-              width: w * 0.02,
-              height: w * 0.02,
-              decoration: const BoxDecoration(color: AppColors.primaryLime, shape: BoxShape.circle),
-            ),
-            SizedBox(width: w * 0.02),
-            Text('Now Speaking', style: GoogleFonts.lato(fontSize: w * 0.028, fontWeight: FontWeight.w700, color: AppColors.primaryLime)),
-            const Spacer(),
-            Text(label, style: GoogleFonts.lato(fontSize: w * 0.026, color: Colors.white38, fontWeight: FontWeight.w600)),
-          ]),
-          SizedBox(height: h * 0.01),
-          // Progress line
-          ClipRRect(
-            borderRadius: BorderRadius.circular(2),
-            child: LinearProgressIndicator(
-              value: progress.clamp(0.0, 1.0),
-              backgroundColor: Colors.white12,
-              valueColor: const AlwaysStoppedAnimation(AppColors.primaryLime),
-              minHeight: 2,
-            ),
+      child: Row(children: [
+        Container(
+          width: w * 0.018,
+          height: w * 0.018,
+          decoration: const BoxDecoration(color: AppColors.primaryLime, shape: BoxShape.circle),
+        ),
+        SizedBox(width: w * 0.02),
+        Text('Now Playing',
+            style: GoogleFonts.lato(fontSize: w * 0.028, fontWeight: FontWeight.w700, color: AppColors.primaryLime)),
+        const Spacer(),
+        Text(label,
+            style: GoogleFonts.lato(fontSize: w * 0.026, color: Colors.white54, fontWeight: FontWeight.w600)),
+        SizedBox(width: w * 0.015),
+        GestureDetector(
+          onTap: () => setState(() => _autoScrollTranscript = true),
+          child: Icon(
+            _autoScrollTranscript ? Icons.my_location_rounded : Icons.location_searching_rounded,
+            size: w * 0.038,
+            color: _autoScrollTranscript ? AppColors.primaryLime : Colors.white38,
           ),
-          SizedBox(height: h * 0.012),
-          // Sentences appearing progressively
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: sentences.asMap().entries.map((entry) {
-              final idx = entry.key;
-              final sentence = entry.value;
-              final isVisible = idx < visibleCount;
-              final isCurrent = idx == visibleCount - 1;
-
-              return AnimatedOpacity(
-                duration: const Duration(milliseconds: 350),
-                opacity: isVisible ? 1.0 : 0.0,
-                child: AnimatedSlide(
-                  duration: const Duration(milliseconds: 300),
-                  offset: isVisible ? Offset.zero : const Offset(0, 0.15),
-                  child: Padding(
-                    padding: EdgeInsets.only(bottom: h * 0.005),
-                    child: Text(
-                      sentence,
-                      style: GoogleFonts.lato(
-                        fontSize: w * 0.036,
-                        color: isCurrent ? AppColors.white : Colors.white54,
-                        height: 1.55,
-                        fontWeight: isCurrent ? FontWeight.w600 : FontWeight.normal,
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-        ],
-      ),
+        ),
+      ]),
     );
   }
 
@@ -1684,55 +1639,48 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen>
           SizedBox(height: h * 0.016),
 
           // ── Markdown notes ────────────────────────────────────────────
-          // Constrain to screen width to prevent any horizontal overflow.
           SizedBox(
             width: double.infinity,
             child: MarkdownBody(
-              data: _notesContent!,
-              shrinkWrap: true,
+              // Normalise line endings so the parser always sees \n
+              data: _notesContent!.replaceAll('\r\n', '\n').trim(),
+              selectable: true,
               softLineBreak: true,
-              styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
-                // Paragraphs
+              // Use MarkdownStyleSheet() directly — fromTheme().copyWith()
+              // silently loses overrides when the app theme lacks Lato fonts.
+              styleSheet: MarkdownStyleSheet(
                 p: GoogleFonts.lato(fontSize: w * 0.036, color: AppColors.primaryDark, height: 1.72),
                 pPadding: EdgeInsets.only(bottom: h * 0.01),
-                // Headings
                 h1: GoogleFonts.lato(fontSize: w * 0.05, fontWeight: FontWeight.w800, color: AppColors.primaryDark),
                 h1Padding: EdgeInsets.only(top: h * 0.018, bottom: h * 0.008),
                 h2: GoogleFonts.lato(fontSize: w * 0.044, fontWeight: FontWeight.w700, color: AppColors.primaryDark),
                 h2Padding: EdgeInsets.only(top: h * 0.014, bottom: h * 0.006),
                 h3: GoogleFonts.lato(fontSize: w * 0.04, fontWeight: FontWeight.w600, color: AppColors.purple),
                 h3Padding: EdgeInsets.only(top: h * 0.012, bottom: h * 0.005),
-                // Inline
+                h4: GoogleFonts.lato(fontSize: w * 0.038, fontWeight: FontWeight.w600, color: AppColors.primaryDark),
                 strong: GoogleFonts.lato(fontSize: w * 0.036, fontWeight: FontWeight.w700, color: AppColors.primaryDark),
                 em: GoogleFonts.lato(fontSize: w * 0.036, fontStyle: FontStyle.italic, color: AppColors.grayDark),
-                // Lists
+                del: GoogleFonts.lato(fontSize: w * 0.036, color: AppColors.gray, decoration: TextDecoration.lineThrough),
                 listBullet: GoogleFonts.lato(fontSize: w * 0.036, color: AppColors.purple),
                 listIndent: w * 0.04,
                 listBulletPadding: EdgeInsets.only(right: w * 0.02),
-                // Block quote — left-border style, no horizontal overflow
-                blockquote: GoogleFonts.lato(
-                    fontSize: w * 0.034, color: AppColors.gray, fontStyle: FontStyle.italic, height: 1.6),
+                blockquote: GoogleFonts.lato(fontSize: w * 0.034, color: AppColors.gray, fontStyle: FontStyle.italic, height: 1.6),
                 blockquoteDecoration: BoxDecoration(
                   color: AppColors.lightBg,
                   border: const Border(left: BorderSide(color: AppColors.primaryLime, width: 3)),
                 ),
                 blockquotePadding: EdgeInsets.fromLTRB(w * 0.04, h * 0.008, w * 0.02, h * 0.008),
-                // Inline code
-                code: GoogleFonts.sourceCodePro(
-                    fontSize: w * 0.031,
-                    color: AppColors.primaryDark,
-                    backgroundColor: AppColors.lightBg),
-                // Code block — constrained width, wraps text, no x-scroll
+                code: GoogleFonts.sourceCodePro(fontSize: w * 0.031, color: AppColors.primaryDark, backgroundColor: AppColors.lightBg),
                 codeblockDecoration: BoxDecoration(
                   color: AppColors.lightBg,
                   borderRadius: BorderRadius.circular(w * 0.025),
                   border: Border.all(color: AppColors.grayLight),
                 ),
                 codeblockPadding: EdgeInsets.all(w * 0.04),
-                // Horizontal rule
-                horizontalRuleDecoration: BoxDecoration(
+                horizontalRuleDecoration: const BoxDecoration(
                   border: Border(top: BorderSide(color: AppColors.grayLight, width: 1)),
                 ),
+                textScaleFactor: 1.0,
               ),
             ),
           ),

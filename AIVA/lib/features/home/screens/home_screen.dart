@@ -6,7 +6,6 @@ import '../../../core/services/api_service.dart';
 import '../../../core/models/student.dart';
 import '../../explore/screens/explore_screen.dart';
 import '../../explore/services/explore_service.dart';
-import '../../ai_chat/screens/ai_chat_screen.dart';
 import '../../progress/screens/progress_screen.dart';
 import '../../profile/screens/profile_screen.dart';
 import '../../todo/screens/todo_screen.dart';
@@ -107,60 +106,60 @@ class _HomeScreenState extends State<HomeScreen> {
                 SizedBox(height: dvph * 0.03),
 
                 // Search bar — navigates to AiChatScreen
-                GestureDetector(
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const AiChatScreen()),
-                  ),
-                  child: Container(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: dvpw * 0.04,
-                      vertical: dvph * 0.015,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.white,
-                      borderRadius: BorderRadius.circular(dvpw * 0.04),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.grayLight.withOpacity(0.5),
-                          blurRadius: 10,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.search_rounded,
-                          size: dvpw * 0.06,
-                          color: AppColors.gray,
-                        ),
-                        SizedBox(width: dvpw * 0.03),
-                        Expanded(
-                          child: Text(
-                            'Ask AIVA anything...',
-                            style: GoogleFonts.lato(
-                              fontSize: dvpw * 0.04,
-                              color: AppColors.gray,
-                            ),
-                          ),
-                        ),
-                        Container(
-                          padding: EdgeInsets.all(dvpw * 0.02),
-                          decoration: BoxDecoration(
-                            color: AppColors.primaryLime,
-                            borderRadius: BorderRadius.circular(dvpw * 0.025),
-                          ),
-                          child: Icon(
-                            Icons.mic_rounded,
-                            size: dvpw * 0.05,
-                            color: AppColors.primaryDark,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+                // GestureDetector(
+                //   onTap: () => Navigator.push(
+                //     context,
+                //     MaterialPageRoute(builder: (_) => const AiChatScreen()),
+                //   ),
+                //   child: Container(
+                //     padding: EdgeInsets.symmetric(
+                //       horizontal: dvpw * 0.04,
+                //       vertical: dvph * 0.015,
+                //     ),
+                //     decoration: BoxDecoration(
+                //       color: AppColors.white,
+                //       borderRadius: BorderRadius.circular(dvpw * 0.04),
+                //       boxShadow: [
+                //         BoxShadow(
+                //           color: AppColors.grayLight.withOpacity(0.5),
+                //           blurRadius: 10,
+                //           offset: const Offset(0, 2),
+                //         ),
+                //       ],
+                //     ),
+                //     child: Row(
+                //       children: [
+                //         Icon(
+                //           Icons.search_rounded,
+                //           size: dvpw * 0.06,
+                //           color: AppColors.gray,
+                //         ),
+                //         SizedBox(width: dvpw * 0.03),
+                //         Expanded(
+                //           child: Text(
+                //             'Ask AIVA anything...',
+                //             style: GoogleFonts.lato(
+                //               fontSize: dvpw * 0.04,
+                //               color: AppColors.gray,
+                //             ),
+                //           ),
+                //         ),
+                //         Container(
+                //           padding: EdgeInsets.all(dvpw * 0.02),
+                //           decoration: BoxDecoration(
+                //             color: AppColors.primaryLime,
+                //             borderRadius: BorderRadius.circular(dvpw * 0.025),
+                //           ),
+                //           child: Icon(
+                //             Icons.mic_rounded,
+                //             size: dvpw * 0.05,
+                //             color: AppColors.primaryDark,
+                //           ),
+                //         ),
+                //       ],
+                //     ),
+                //   ),
+                // ),
 
                 SizedBox(height: dvph * 0.03),
 
@@ -403,32 +402,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           height: 1.5,
                         ),
                       ),
-                      SizedBox(height: dvph * 0.02),
-                      ElevatedButton(
-                        onPressed: () => Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (_) => const AiChatScreen()),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primaryLime,
-                          foregroundColor: AppColors.primaryDark,
-                          elevation: 0,
-                          padding: EdgeInsets.symmetric(
-                            horizontal: dvpw * 0.06,
-                            vertical: dvph * 0.012,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(dvpw * 0.025),
-                          ),
-                        ),
-                        child: Text(
-                          'Start Chat',
-                          style: GoogleFonts.lato(
-                            fontSize: dvpw * 0.035,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
+                      // Start Chat button removed
                     ],
                   ),
                 ),
