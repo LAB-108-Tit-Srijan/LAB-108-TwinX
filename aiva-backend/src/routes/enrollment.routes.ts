@@ -28,13 +28,28 @@ router.post('/enroll', studentAuth, async (req: StudentRequest, res: Response, n
     const course = courseResult.rows[0];
 
     // Create enrollment (upsert — safe to call multiple times)
-    const enrollment = await query(
-      `INSERT INTO enrollments (student_id, course_id, target_weeks)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (student_id, course_id) DO UPDATE SET target_weeks = EXCLUDED.target_weeks
-       RETURNING id`,
-      [studentId, course_id, target_weeks ?? 4]
-    );
+    let enrollment;
+    try {
+      enrollment = await query(
+        `INSERT INTO enrollments (student_id, course_id, target_weeks)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (student_id, course_id) DO UPDATE SET target_weeks = EXCLUDED.target_weeks
+         RETURNING id`,
+        [studentId, course_id, target_weeks ?? 4]
+      );
+    } catch (dbErr: unknown) {
+      // FK violation means the student row no longer exists — stale token
+      const msg = dbErr instanceof Error ? dbErr.message : String(dbErr);
+      if (msg.includes('foreign key constraint') || msg.includes('enrollments_student_id_fkey')) {
+        res.status(401).json({
+          success: false,
+          error: 'Session expired — please log in again',
+          session_expired: true,
+        });
+        return;
+      }
+      throw dbErr;
+    }
     const enrollmentId = enrollment.rows[0].id;
 
     // Respond immediately — don't make the student wait for AI roadmap generation

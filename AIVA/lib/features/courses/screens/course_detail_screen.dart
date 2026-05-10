@@ -4,6 +4,8 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/models/course.dart';
 import '../../../core/models/lecture.dart';
 import '../../../core/services/api_service.dart';
+import '../../../core/services/auth_service.dart';
+import '../../onboarding/screens/onboarding_screen.dart';
 import '../../video_player/screens/video_player_screen.dart';
 
 class CourseDetailScreen extends StatefulWidget {
@@ -150,32 +152,41 @@ class _CourseDetailScreenState extends State<CourseDetailScreen> {
         ));
       } else {
         setState(() => _enrolling = false);
-        // Backend uses 'error' field, not 'message'
+        if (!mounted) return;
+
+        // Session expired — clear stale token and send user to login
+        if (result['session_expired'] == true) {
+          await AuthService.logout();
+          if (!mounted) return;
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const OnboardingScreen()),
+            (route) => false,
+          );
+          return;
+        }
+
         final errMsg = result['error']?.toString()
             ?? result['message']?.toString()
             ?? 'Enrollment failed. Please try again.';
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(errMsg),
-            backgroundColor: AppColors.red,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          ));
-        }
-      }
-    } catch (e) {
-      setState(() => _enrolling = false);
-      final msg = e.toString().contains('TimeoutException')
-          ? 'Request timed out. Please check your connection and try again.'
-          : 'Could not connect to server. Please try again.';
-      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(msg),
+          content: Text(errMsg),
           backgroundColor: AppColors.red,
           behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ));
       }
+    } catch (e) {
+      setState(() => _enrolling = false);
+      if (!mounted) return;
+      final msg = e.toString().contains('TimeoutException')
+          ? 'Request timed out. Please check your connection and try again.'
+          : 'Could not connect to server. Please try again.';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(msg),
+        backgroundColor: AppColors.red,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ));
     }
   }
 
